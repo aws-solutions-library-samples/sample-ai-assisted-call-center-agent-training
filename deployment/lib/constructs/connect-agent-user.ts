@@ -130,6 +130,18 @@ export class ConnectAgentUserConstruct extends Construct {
               actions: ['secretsmanager:GetSecretValue'],
               resources: [this.passwordSecret.secretArn],
             }),
+            // GetSecretValue on a CMK-encrypted secret also requires kms:Decrypt,
+            // which Secrets Manager calls with these credentials on our behalf.
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: ['kms:Decrypt'],
+              resources: [secretEncryptionKey.keyArn],
+              conditions: {
+                StringEquals: {
+                  'kms:ViaService': `secretsmanager.${stack.region}.amazonaws.com`,
+                },
+              },
+            }),
           ],
         }),
       },
