@@ -13,7 +13,7 @@ import type { Scenario, TranscriptMessage, SessionStatus, ScoringData, ScreenCap
 import { useAudioCapture } from '../hooks/useAudioCapture';
 import { useScreenCapture } from '../hooks/useScreenCapture';
 import { useAudioRecording } from '../hooks/useAudioRecording';
-import { playAudioFromBase64, closeAudioContext, getPlaybackStream, initPlaybackContext, setPlaybackSessionStart, getAndResetPlaybackTiming } from '../utils/audioUtils';
+import { playAudioFromBase64, stopPlayback, closeAudioContext, getPlaybackStream, initPlaybackContext, setPlaybackSessionStart, getAndResetPlaybackTiming } from '../utils/audioUtils';
 import { generatePresignedWebSocketUrl, AgentCoreWebSocketClient } from '../services/websocket-presigned';
 import { requestScoring } from '../services/scoring';
 import { createSession } from '../services/scenarios';
@@ -45,6 +45,8 @@ export const TrainingSession = ({ scenario, voiceId, customerMood, languageMode,
   const [isEndingSession, setIsEndingSession] = useState(false);
   const [isStartingSession, setIsStartingSession] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  // Shown while Strands refreshes the Nova Sonic connection (~every 7 minutes)
+  const [connectionNotice, setConnectionNotice] = useState<'reconnecting' | 'turn_interrupted' | null>(null);
 
   // Timer state
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
@@ -141,6 +143,10 @@ export const TrainingSession = ({ scenario, voiceId, customerMood, languageMode,
         console.log('[Event] Transcript:', role, text?.substring(0, 50));
 
         if (text) {
+          // Trainee spoke again, so any "please repeat" notice is resolved
+          if (role === 'user') {
+            setConnectionNotice((notice) => (notice === 'turn_interrupted' ? null : notice));
+          }
           const characterName = event.character_name;
           const speaker = role === 'user' ? 'You' : (characterName || 'Customer');
           addTranscriptMessage(speaker, text);
@@ -190,7 +196,22 @@ export const TrainingSession = ({ scenario, voiceId, customerMood, languageMode,
       }
 
       case 'bidi_barge_in':
+        // Trainee interrupted the customer: cut off any queued customer audio
         console.log('[Event] Interruption detected', event);
+        stopPlayback();
+        break;
+
+      case 'bidi_connection_warning':
+        setConnectionNotice('reconnecting');
+        break;
+
+      case 'bidi_connection_restart':
+        console.log('[Event] Connection restart:', event.reason, 'turn_interrupted:', event.turn_interrupted);
+        setConnectionNotice(event.turn_interrupted ? 'turn_interrupted' : 'reconnecting');
+        break;
+
+      case 'bidi_connection_start':
+        setConnectionNotice((notice) => (notice === 'reconnecting' ? null : notice));
         break;
 
       case 'bidi_tool_use_blocks':
@@ -206,7 +227,6 @@ export const TrainingSession = ({ scenario, voiceId, customerMood, languageMode,
         break;
 
       // Lifecycle and partial events — no UI handling needed
-      case 'bidi_connection_start':
       case 'bidi_response_start':
       case 'bidi_response_stop':
       case 'bidi_audio_start':
@@ -700,6 +720,19 @@ export const TrainingSession = ({ scenario, voiceId, customerMood, languageMode,
                 </Button>
               </SpaceBetween>
             </Box>
+          )}
+
+          {sessionStatus === 'active' && connectionNotice === 'reconnecting' && (
+            <Alert type="info">
+              Refreshing the connection. The customer may pause for a moment.
+            </Alert>
+          )}
+
+          {sessionStatus === 'active' && connectionNotice === 'turn_interrupted' && (
+            <Alert type="warning" dismissible onDismiss={() => setConnectionNotice(null)}>
+              The connection was refreshed while you were talking. The customer may not have heard
+              your last sentence, so please repeat it.
+            </Alert>
           )}
 
           {isCapturing && (
