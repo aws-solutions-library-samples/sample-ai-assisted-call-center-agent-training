@@ -29,18 +29,22 @@ Nova Sonic enforces an approximately **8-minute maximum** per bidirectional stre
 
 ### How it's handled
 
-The Strands `BidiAgent` SDK handles this **automatically**. When the timeout occurs:
+The Strands `BidiAgent` SDK restarts the connection **proactively**, before Nova Sonic's limit is reached:
 
-1. `BidiNovaSonicModel.receive()` catches the timeout and raises `BidiModelTimeoutError`
-2. `_BidiAgentLoop._restart_connection()` stops the old connection
-3. A new connection is started with the full conversation history (all prior transcript turns) replayed as text events via `_get_message_history_events()`
-4. Audio streaming resumes transparently
+1. `BedrockNovaSonicModel` schedules a restart **7 minutes** into each connection, leaving headroom below the limit. A `bidi_connection_warning` event is emitted about 10 seconds beforehand.
+2. When the restart fires, the agent waits up to 10 seconds for the current turn to finish so the swap lands between turns rather than mid-sentence.
+3. A `bidi_connection_restart` event is emitted, the old connection is closed, and a new one is opened with the conversation history replayed as text.
+4. Audio sent during the swap is held until the new connection is ready rather than dropped.
+
+If the service still terminates a connection early, the agent restarts it reactively the same way (`bidi_connection_restart` with `reason: "timeout"`).
+
+Nova Sonic reports token usage cumulatively per connection, so the counts reset on every restart. The agent server adds each connection's totals to a running baseline, so the session's recorded `token_usage` covers all connections.
 
 ### Known gaps in the auto-restart
 
-- **Brief audio loss during reconnection**: There is a ~1-second window during reconnection where user audio is not buffered. Anything the user says during this gap is lost. (The [AWS reference implementation](https://github.com/aws-samples/amazon-nova-samples/tree/main/speech-to-speech/repeatable-patterns/resume-conversation) uses a 10-second ring buffer to avoid this, but Strands does not.)
-- **No UI indication**: The frontend receives a `BidiConnectionRestartEvent` but does not display anything to the user — the conversation simply pauses briefly.
+- **No UI indication**: The frontend receives `bidi_connection_warning` and `bidi_connection_restart` events but does not display anything; the conversation simply pauses briefly. If a restart cuts off a turn anyway (`turn_interrupted: true` on the restart event), that turn isn't answered on the new connection and the trainee has to repeat themselves.
 - **Conversation history is text-only**: On restart, prior turns are replayed as text, not audio. The model loses audio context (tone, emotion, accent nuances) from before the restart.
+- **History size cap**: Replayed history is capped at 50 KB per message and 200 KB total; in very long sessions the oldest turns are dropped from the model's context.
 
 ---
 
@@ -57,7 +61,7 @@ Nova Sonic allows a maximum of **20 concurrent bidirectional stream connections 
 ### What this means
 
 - With 20 trainees in simultaneous sessions, the 21st session will fail to start.
-- The 8-minute auto-restart (see above) briefly consumes a second connection during the reconnection window.
+- The auto-restart (see above) closes the old connection before opening the new one, so it does not consume an extra connection.
 - This is a service quota enforced by AWS and cannot be increased through configuration. Contact AWS support to request a quota increase if needed.
 
 ---

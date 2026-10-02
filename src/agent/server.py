@@ -175,6 +175,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
         # Token usage accumulator for Nova Sonic
         nova_sonic_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+        # Totals from connections that have since restarted (Strands restarts every ~7 min)
+        usage_baseline = dict(nova_sonic_usage)
 
         # Step 2: Run session (duo or single-agent)
         if scenario and scenario.is_duo:
@@ -243,11 +245,14 @@ async def websocket_endpoint(websocket: WebSocket):
                         logger.info(f"Recorded transcript: {speaker} - {text[:50]}...")
 
                     # Capture token usage from bidi_usage events.
-                    # BidiAgent emits cumulative totals, so overwrite rather than sum.
+                    # Nova Sonic reports cumulative totals per connection, which reset when
+                    # the connection restarts, so add them to the baseline from earlier ones.
+                    if event_type == "bidi_connection_restart":
+                        usage_baseline.update(nova_sonic_usage)
                     if event_type == "bidi_usage":
-                        nova_sonic_usage["input_tokens"] = event.get("inputTokens", nova_sonic_usage["input_tokens"])
-                        nova_sonic_usage["output_tokens"] = event.get("outputTokens", nova_sonic_usage["output_tokens"])
-                        nova_sonic_usage["total_tokens"] = event.get("totalTokens", nova_sonic_usage["total_tokens"])
+                        nova_sonic_usage["input_tokens"] = usage_baseline["input_tokens"] + event.get("inputTokens", 0)
+                        nova_sonic_usage["output_tokens"] = usage_baseline["output_tokens"] + event.get("outputTokens", 0)
+                        nova_sonic_usage["total_tokens"] = usage_baseline["total_tokens"] + event.get("totalTokens", 0)
 
                     # Forward event to WebSocket client
                     await websocket.send_json(event)
