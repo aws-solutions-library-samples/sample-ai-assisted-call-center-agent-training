@@ -28,6 +28,7 @@ from src.voices import get_locale_voice_id
 from src.agent.tools import verify_spelling
 from src.agent.duo_session import run_duo_session
 from src.agent.protocol import to_agent_input, to_client_event
+from src.agent.usage import NovaSonicUsage
 import boto3
 
 # Configure logging
@@ -114,6 +115,7 @@ async def websocket_endpoint(websocket: WebSocket):
     aws_region = os.getenv("AWS_DEFAULT_REGION", os.getenv("AWS_REGION", "us-west-2"))
     session_recorder = None
     session_id = None
+    nova_sonic_usage = NovaSonicUsage()
 
     try:
         # Step 1: Wait for session config message
@@ -173,11 +175,6 @@ async def websocket_endpoint(websocket: WebSocket):
         effective_session_id = session_id or (session_recorder.session_id if session_recorder else None)
         await websocket.send_json({"type": "session_started", "session_id": effective_session_id})
 
-        # Token usage accumulator for Nova Sonic
-        nova_sonic_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
-        # Totals from connections that have since restarted (Strands restarts every ~7 min)
-        usage_baseline = dict(nova_sonic_usage)
-
         # Step 2: Run session (duo or single-agent)
         if scenario and scenario.is_duo:
             # --- Duo mode: multiple characters with handoff ---
@@ -194,6 +191,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     ws_receive=websocket.receive_json,
                     ws_send=websocket.send_json,
                     session_recorder=session_recorder,
+                    usage=nova_sonic_usage,
                 )
             except asyncio.CancelledError:
                 logger.info("Duo session cancelled (graceful shutdown)")
@@ -244,15 +242,8 @@ async def websocket_endpoint(websocket: WebSocket):
                         )
                         logger.info(f"Recorded transcript: {speaker} - {text[:50]}...")
 
-                    # Capture token usage from bidi_usage events.
-                    # Nova Sonic reports cumulative totals per connection, which reset when
-                    # the connection restarts, so add them to the baseline from earlier ones.
-                    if event_type == "bidi_connection_restart":
-                        usage_baseline.update(nova_sonic_usage)
-                    if event_type == "bidi_usage":
-                        nova_sonic_usage["input_tokens"] = usage_baseline["input_tokens"] + event.get("inputTokens", 0)
-                        nova_sonic_usage["output_tokens"] = usage_baseline["output_tokens"] + event.get("outputTokens", 0)
-                        nova_sonic_usage["total_tokens"] = usage_baseline["total_tokens"] + event.get("totalTokens", 0)
+                    # Capture token usage (handles per-connection resets on restart)
+                    nova_sonic_usage.on_event(event)
 
                     # Forward event to WebSocket client
                     await websocket.send_json(event)
@@ -291,18 +282,17 @@ async def websocket_endpoint(websocket: WebSocket):
         if session_recorder and session_recorder.is_recording:
             try:
                 # Attach Nova Sonic token usage to session metadata
-                if nova_sonic_usage["total_tokens"] > 0:
+                usage_totals = nova_sonic_usage.totals()
+                if usage_totals["total_tokens"] > 0:
                     session_recorder.token_usage = {
                         "nova_sonic": {
                             "model": NOVA_SONIC_MODEL_ID,
-                            "input_tokens": nova_sonic_usage["input_tokens"],
-                            "output_tokens": nova_sonic_usage["output_tokens"],
-                            "total_tokens": nova_sonic_usage["total_tokens"],
+                            **usage_totals,
                         }
                     }
                     logger.info("TOKEN_USAGE component=nova_sonic model=%s input_tokens=%d output_tokens=%d total_tokens=%d session_id=%s",
-                                NOVA_SONIC_MODEL_ID, nova_sonic_usage["input_tokens"],
-                                nova_sonic_usage["output_tokens"], nova_sonic_usage["total_tokens"],
+                                NOVA_SONIC_MODEL_ID, usage_totals["input_tokens"],
+                                usage_totals["output_tokens"], usage_totals["total_tokens"],
                                 session_id)
 
                 logger.info("Stopping recording and uploading to S3")

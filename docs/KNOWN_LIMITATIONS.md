@@ -38,7 +38,7 @@ The Strands `BidiAgent` SDK restarts the connection **proactively**, before Nova
 
 If the service still terminates a connection early, the agent restarts it reactively the same way (`bidi_connection_restart` with `reason: "timeout"`).
 
-Nova Sonic reports token usage cumulatively per connection, so the counts reset on every restart. The agent server adds each connection's totals to a running baseline, so the session's recorded `token_usage` covers all connections.
+Nova Sonic reports token usage cumulatively per connection, so the counts reset on every restart (and, in duo sessions, on every character handoff). The agent server adds each connection's totals to a running baseline, so the session's recorded `token_usage` covers all connections.
 
 ### Known gaps in the auto-restart
 

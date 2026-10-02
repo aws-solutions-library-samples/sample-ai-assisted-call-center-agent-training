@@ -20,6 +20,7 @@ from src.scenarios.loader import Character, Scenario
 from src.voices import get_locale_voice_id
 from src.agent.tools import verify_spelling
 from src.agent.protocol import to_agent_input, to_client_event
+from src.agent.usage import NovaSonicUsage
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +117,7 @@ async def run_duo_session(
     ws_receive: Callable,
     ws_send: Callable,
     session_recorder: Any = None,
+    usage: Optional[NovaSonicUsage] = None,
 ) -> None:
     """Run a multi-character duo session.
 
@@ -128,6 +130,7 @@ async def run_duo_session(
         ws_receive: Async callable that returns the next WebSocket message (dict).
         ws_send: Async callable that sends a dict to the WebSocket.
         session_recorder: Optional SessionRecorder for transcript capture.
+        usage: Optional tracker that accumulates Nova Sonic token usage for the session.
     """
     characters = scenario.characters
     if not characters or len(characters) < 2:
@@ -181,6 +184,11 @@ async def run_duo_session(
         """Receive events from a character's agent and forward to WebSocket."""
         agent = agents[char_id]
         async for agent_event in agent.receive():
+            # Count usage even after hand_off flips "active": this character's
+            # connection stays open (and billed) until the handoff stops it
+            if usage:
+                usage.on_event(agent_event)
+
             # Only forward output from the active character
             if state["active"] == char_id:
                 event = to_client_event(agent_event)
@@ -241,6 +249,8 @@ async def run_duo_session(
                     pass
                 state["output_handles"][cid] = None
             await agents[cid].stop()
+            if usage:
+                usage.end_connection()
         state["ready"].clear()
 
         # Copy messages from source to target, re-roling other character's lines
