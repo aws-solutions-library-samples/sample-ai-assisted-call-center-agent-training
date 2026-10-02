@@ -17,7 +17,6 @@ Usage:
 
 import argparse
 import asyncio
-import base64
 from datetime import datetime
 import re
 import sys
@@ -31,14 +30,10 @@ sys.path.insert(0, PROJECT_ROOT)
 
 from src.config.models import NOVA_SONIC_MODEL_ID, NOVA_LITE_MODEL_ID
 from strands import Agent
-from strands.experimental.bidi.agent import BidiAgent
-from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
-from strands.experimental.bidi.models.nova_sonic import BidiNovaSonicModel
-from strands.experimental.bidi.tools import stop_conversation
-from strands.experimental.bidi.types.events import (
-    BidiAudioInputEvent,
-    BidiTextInputEvent,
-)
+from strands.bidi import BidiAgent
+from strands.bidi.io import AudioIO, ConsoleIO
+from strands.bidi.models.bedrock import BedrockNovaSonicModel
+from strands.bidi.types.media import AudioDelta
 
 from src.scenarios.loader import ScenarioLoader
 from src.customer_prompt import (
@@ -172,19 +167,14 @@ async def run_scenario(scenario_id: str, voice: str, mood: str, profile: str, re
     print(f"Voice: {voice} | Mood: {mood}")
 
     session = boto3.Session(profile_name=profile, region_name=region)
-    model = BidiNovaSonicModel(
+    model = BedrockNovaSonicModel(
+        boto_session=session,
         model_id=NOVA_SONIC_MODEL_ID,
-        provider_config={
-            "audio": {
-                "voice": voice,
-            },
-        },
-        client_config={"boto_session": session},
+        voice=voice,
     )
 
     agent = BidiAgent(
         model=model,
-        tools=[stop_conversation],
         system_prompt=system_prompt,
     )
 
@@ -201,11 +191,12 @@ async def run_scenario(scenario_id: str, voice: str, mood: str, profile: str, re
         print("Press Ctrl+C to exit.")
         print("-" * 60)
 
-        audio_io = BidiAudioIO()
-        text_io = BidiTextIO(input_prompt="Agent> ")
+        # AudioIO renders transcripts through the shared console
+        console = ConsoleIO(placeholder="Agent> ")
+        audio_io = AudioIO(console=console)
         await agent.run(
-            inputs=[audio_io.input(), text_io.input()],
-            outputs=[audio_io.output(), text_io.output()],
+            inputs=[audio_io.input(), console.input()],
+            outputs=[audio_io.output()],
         )
     else:
         # Automated mode: LLM generates agent lines, Nova Sonic responds as customer
@@ -223,19 +214,14 @@ async def run_scenario(scenario_id: str, voice: str, mood: str, profile: str, re
         async with agent:
             # Background task: feed silent audio to keep Nova Sonic alive
             async def feed_silence():
-                rate = agent.model.config["audio"]["input_rate"]
-                channels = agent.model.config["audio"]["channels"]
-                fmt = agent.model.config["audio"]["format"]
+                input_audio = agent.model.get_audio_config()["input"]
+                rate = input_audio["sample_rate"]
+                channels = input_audio["channels"]
                 chunk_size = int(rate * 0.02) * 2 * channels
                 while True:
                     await asyncio.sleep(0.02)
                     silent = b"\x00" * chunk_size
-                    await agent.send(BidiAudioInputEvent(
-                        audio=base64.b64encode(silent).decode("utf-8"),
-                        format=fmt,
-                        sample_rate=rate,
-                        channels=channels,
-                    ))
+                    await agent.send(AudioDelta(format=input_audio["format"], source={"bytes": silent}))
 
             audio_task = asyncio.create_task(feed_silence())
 
@@ -246,17 +232,17 @@ async def run_scenario(scenario_id: str, voice: str, mood: str, profile: str, re
                 for turn in range(max_turns):
                     print(f"\nAgent [{turn+1}]: {csr_response}")
                     transcript.append(("Agent", csr_response))
-                    await agent.send(BidiTextInputEvent(text=csr_response, role="user"))
+                    await agent.send(csr_response)
 
                     # Get customer response from Nova Sonic
                     customer_text = None
                     async for event in agent.receive():
                         event_type = event.get("type")
-                        if event_type == "bidi_transcript_stream":
-                            if event["is_final"] and event["role"] == "assistant":
-                                customer_text = event["text"]
+                        if event_type == "bidi_transcript_block":
+                            if event["role"] == "assistant":
+                                customer_text = event["transcript"]
                                 break
-                        elif event_type == "bidi_connection_close":
+                        elif event_type == "bidi_connection_stop":
                             break
 
                     if not customer_text:

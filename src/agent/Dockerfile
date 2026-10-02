@@ -1,7 +1,10 @@
 # AgentCore Dockerfile for Call Center Training Agent
 # Uses Python 3.13 with uv for fast dependency installation
 
-FROM ghcr.io/astral-sh/uv:python3.13-bookworm
+FROM public.ecr.aws/docker/library/python:3.13-bookworm
+
+# Install uv from PyPI (no ECR Public image is published for uv)
+RUN pip install --no-cache-dir uv
 
 # Set working directory
 WORKDIR /app
@@ -14,9 +17,8 @@ ENV PYTHONUNBUFFERED=1 \
     UV_NO_PROGRESS=1 \
     DOCKER_CONTAINER=1
 
-# Install system dependencies (portaudio19-dev required by pyaudio, a transitive dep of strands-agents[bidi])
+# Install system dependencies (curl for the container health check)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    portaudio19-dev \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
@@ -25,7 +27,7 @@ COPY requirements.txt /app/
 
 # Install Python dependencies with uv
 RUN uv pip install -r requirements.txt && \
-    uv pip install aws-opentelemetry-distro>=0.12.2
+    uv pip install "aws-opentelemetry-distro>=0.12.2"
 
 # Copy only the source modules needed by the agent (excludes lambda/, evaluators/, models/)
 COPY src/__init__.py /app/src/

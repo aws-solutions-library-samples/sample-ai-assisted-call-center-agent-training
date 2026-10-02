@@ -2,7 +2,7 @@
  * WebSocket service with client-side presigned URL generation
  * Uses Cognito AWS credentials to sign WebSocket URLs directly in the browser
  * 
- * Protocol: Strands BidiAgent events (bidi_audio_input, bidi_audio_stream, bidi_transcript_stream, etc.)
+ * Protocol: Strands BidiAgent events (audio_delta input; bidi_audio_delta, bidi_transcript_block, etc. output)
  */
 
 import { fetchAuthSession } from 'aws-amplify/auth';
@@ -104,8 +104,8 @@ export const generatePresignedWebSocketUrl = async (
  * Protocol:
  * 1. Connect via presigned URL
  * 2. Send session_config with scenario/voice info
- * 3. Send bidi_audio_input events with microphone audio
- * 4. Receive bidi_audio_stream, bidi_transcript_stream, bidi_interruption events
+ * 3. Send audio_delta messages with microphone audio
+ * 4. Receive bidi_audio_delta, bidi_transcript_block, bidi_barge_in events
  * 5. Close WebSocket to end session
  */
 export class AgentCoreWebSocketClient {
@@ -180,24 +180,24 @@ export class AgentCoreWebSocketClient {
   }
 
   /**
-   * Send audio chunk in Strands bidi_audio_input format
+   * Send audio chunk in Strands audio_delta format.
+   * Audio is 16 kHz mono PCM; bytes are base64 since the transport is JSON.
    */
   sendAudioChunk(audioBase64: string): void {
     if (!this.ws) return;
 
     this.sendEvent({
-      type: 'bidi_audio_input',
-      audio: audioBase64,
-      format: 'pcm',
-      sample_rate: 16000,
-      channels: 1,
+      audio_delta: {
+        format: 'pcm',
+        source: { bytes: audioBase64 },
+      },
     });
   }
 
   /**
    * Register message handler for incoming Strands events.
-   * Events: bidi_audio_stream, bidi_transcript_stream, bidi_interruption,
-   *         tool_use_stream, tool_result, session_started, error
+   * Events: bidi_audio_delta, bidi_transcript_block, bidi_barge_in,
+   *         bidi_tool_use_blocks, tool_result, session_started, error
    */
   onMessage(callback: (event: any) => void): void {
     if (this.ws) {

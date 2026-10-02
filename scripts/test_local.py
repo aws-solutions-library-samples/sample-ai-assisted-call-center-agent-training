@@ -24,10 +24,9 @@ import boto3
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-from strands.experimental.bidi.agent import BidiAgent
-from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
-from strands.experimental.bidi.models.nova_sonic import BidiNovaSonicModel
-from strands.experimental.bidi.tools import stop_conversation
+from strands.bidi import BidiAgent
+from strands.bidi.io import AudioIO, ConsoleIO
+from strands.bidi.models.bedrock import BedrockNovaSonicModel
 
 from src.config.models import NOVA_SONIC_MODEL_ID
 from src.scenarios.loader import ScenarioLoader
@@ -70,14 +69,10 @@ async def run(scenario_id: str, voice: str, mood: str, profile: str,
     print("-" * 60)
 
     session = boto3.Session(profile_name=profile, region_name=region)
-    model = BidiNovaSonicModel(
+    model = BedrockNovaSonicModel(
+        boto_session=session,
         model_id=NOVA_SONIC_MODEL_ID,
-        provider_config={
-            "audio": {
-                "voice": voice,
-            },
-        },
-        client_config={"boto_session": session},
+        voice=voice,
     )
 
     agent = BidiAgent(
@@ -86,22 +81,22 @@ async def run(scenario_id: str, voice: str, mood: str, profile: str,
         system_prompt=system_prompt,
     )
 
+    console = ConsoleIO(placeholder="Agent> ")
     if text_only:
-        text_io = BidiTextIO(input_prompt="Agent> ")
         print("Type your agent lines. The customer (Nova Sonic) will respond.")
         print("Press Ctrl+C to exit.\n")
         await agent.run(
-            inputs=[text_io.input()],
-            outputs=[text_io.output()],
+            inputs=[console.input()],
+            outputs=[console.output()],
         )
     else:
-        audio_io = BidiAudioIO()
-        text_io = BidiTextIO(input_prompt="Agent> ")
+        # AudioIO renders transcripts through the shared console
+        audio_io = AudioIO(console=console)
         print("Speak into your microphone. The customer will respond via speaker.")
         print("You can also type messages. Press Ctrl+C to exit.\n")
         await agent.run(
-            inputs=[audio_io.input(), text_io.input()],
-            outputs=[audio_io.output(), text_io.output()],
+            inputs=[audio_io.input(), console.input()],
+            outputs=[audio_io.output()],
         )
 
 

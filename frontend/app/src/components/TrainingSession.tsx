@@ -125,7 +125,7 @@ export const TrainingSession = ({ scenario, voiceId, customerMood, languageMode,
         console.log('[Event] Session started, id:', event.session_id);
         break;
 
-      case 'bidi_audio_stream':
+      case 'bidi_audio_delta':
           console.log('[Event]', eventType);
         // Play audio from Nova Sonic (customer voice)
         if (event.audio) {
@@ -133,15 +133,14 @@ export const TrainingSession = ({ scenario, voiceId, customerMood, languageMode,
         }
         break;
 
-      case 'bidi_transcript_stream': {
-        // Strands provides is_final flag — only show final transcripts (no duplicates)
+      case 'bidi_transcript_block': {
+        // Completed transcript — partial bidi_transcript_delta events are ignored (no duplicates)
         const role = event.role || 'assistant';
-        const text = event.text || '';
-        const isFinal = event.is_final;
+        const text = event.transcript || '';
 
-        console.log('[Event] Transcript:', role, 'is_final:', isFinal, text?.substring(0, 50));
+        console.log('[Event] Transcript:', role, text?.substring(0, 50));
 
-        if (isFinal && text) {
+        if (text) {
           const characterName = event.character_name;
           const speaker = role === 'user' ? 'You' : (characterName || 'Customer');
           addTranscriptMessage(speaker, text);
@@ -190,12 +189,12 @@ export const TrainingSession = ({ scenario, voiceId, customerMood, languageMode,
         break;
       }
 
-      case 'bidi_interruption':
+      case 'bidi_barge_in':
         console.log('[Event] Interruption detected', event);
         break;
 
-      case 'tool_use_stream':
-        console.log('[Event] Tool use:', event.current_tool_use?.name);
+      case 'bidi_tool_use_blocks':
+        console.log('[Event] Tool use:', event.tool_uses?.map((t: { name: string }) => t.name));
         break;
 
       case 'tool_result':
@@ -204,6 +203,19 @@ export const TrainingSession = ({ scenario, voiceId, customerMood, languageMode,
 
       case 'error':
         console.error('[Event] Error:', event.message);
+        break;
+
+      // Lifecycle and partial events — no UI handling needed
+      case 'bidi_connection_start':
+      case 'bidi_response_start':
+      case 'bidi_response_stop':
+      case 'bidi_audio_start':
+      case 'bidi_audio_stop':
+      case 'bidi_transcript_start':
+      case 'bidi_transcript_delta':
+      case 'bidi_transcript_stop':
+      case 'bidi_usage':
+      case 'tool_stream':
         break;
 
       default:

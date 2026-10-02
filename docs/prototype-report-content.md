@@ -121,7 +121,7 @@ The following describes the end-to-end data flow when a trainee completes a trai
 - AgentCore forwards audio to Nova Sonic BidiAgent
 - Nova Sonic processes speech-to-text, generates AI response, synthesizes speech
 - Response audio (24kHz) and real-time transcript streamed back over WebSocket
-- Events: `bidi_audio_input`, `bidi_audio_stream`, `bidi_transcript_stream`, `bidi_interruption`
+- Events (Strands bidi protocol): `audio_delta` (input), `bidi_audio_delta`, `bidi_transcript_block`, `bidi_barge_in`
 - System supports natural interruptions (trainee can interrupt the customer mid-sentence)
 
 **6. Client-Side Recording (Concurrent)**
