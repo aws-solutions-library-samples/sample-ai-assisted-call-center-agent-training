@@ -46,7 +46,8 @@ def list_scenarios(loader: ScenarioLoader) -> None:
 
 
 async def run(scenario_id: str, voice: str, mood: str, profile: str,
-              region: str, text_only: bool, language_mode: str) -> None:
+              region: str, text_only: bool, language_mode: str,
+              echo_cancellation: bool = True) -> None:
     """Run a local voice agent session."""
     loader = ScenarioLoader(scenarios_dir=os.path.join(PROJECT_ROOT, "scenarios"))
     loader.load_all_scenarios()
@@ -90,8 +91,9 @@ async def run(scenario_id: str, voice: str, mood: str, profile: str,
             outputs=[console.output()],
         )
     else:
-        # AudioIO renders transcripts through the shared console
-        audio_io = AudioIO(console=console)
+        # AudioIO renders transcripts through the shared console. Echo cancellation
+        # removes the customer's voice from the mic so speakers work without headphones.
+        audio_io = AudioIO(console=console, audio_processor=echo_cancellation)
         print("Speak into your microphone. The customer will respond via speaker.")
         print("You can also type messages. Press Ctrl+C to exit.\n")
         await agent.run(
@@ -112,6 +114,8 @@ def main():
                         help="Language mode (default: english)")
     parser.add_argument("--text-only", action="store_true",
                         help="Text-only mode: type agent lines instead of using microphone")
+    parser.add_argument("--no-echo-cancellation", action="store_true",
+                        help="Disable echo cancellation (use with headphones)")
     parser.add_argument("--profile", default=DEFAULT_PROFILE,
                         help="AWS profile (default: uses AWS credential chain)")
     parser.add_argument("--region", default=DEFAULT_REGION,
@@ -133,6 +137,7 @@ def main():
         asyncio.run(run(
             args.scenario, args.voice, args.mood, args.profile,
             args.region, args.text_only, args.language_mode,
+            echo_cancellation=not args.no_echo_cancellation,
         ))
     except KeyboardInterrupt:
         print("\nSession ended.")

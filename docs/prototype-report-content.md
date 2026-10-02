@@ -548,7 +548,7 @@ The following tools and configurations are required:
 
 The deploying AWS account must have access to Amazon Bedrock models (Nova 2 Sonic v1 for voice, Claude Sonnet 4.6 for evaluation) in the target region (us-west-2). If using the Amazon Connect integration, a Connect instance must be pre-created with the appropriate contact flows configured.
 
-**Local Testing:** The `scripts/test_local.py` and `scripts/test_local_duo.py` scripts allow testing scenarios locally without deploying to AgentCore, using the same system prompts and tools as production. Console-based voice testing requires headphones since echo cancellation is not available in terminal mode (the browser Web UI handles echo cancellation via WebRTC).
+**Local Testing:** The `scripts/test_local.py` and `scripts/test_local_duo.py` scripts allow testing scenarios locally without deploying to AgentCore, using the same system prompts and tools as production. Console voice testing applies WebRTC echo cancellation and noise suppression (via Strands' `bidi-aec` extra), so speakers work without headphones; pass `--no-echo-cancellation` to turn it off. Install the script dependencies with `pip install -r scripts/requirements.txt`.
 
 ### Configuration
 

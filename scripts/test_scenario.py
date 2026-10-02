@@ -149,7 +149,8 @@ def list_scenarios(loader: ScenarioLoader) -> None:
 
 async def run_scenario(scenario_id: str, voice: str, mood: str, profile: str, region: str,
                        interactive: bool = False, delay: float = 2.0,
-                       max_turns: int = 15, loader: ScenarioLoader | None = None) -> None:
+                       max_turns: int = 15, loader: ScenarioLoader | None = None,
+                       echo_cancellation: bool = True) -> None:
     """Run a scenario against Nova Sonic."""
     if loader is None:
         loader = ScenarioLoader(scenarios_dir=os.path.join(PROJECT_ROOT, "scenarios"))
@@ -191,9 +192,10 @@ async def run_scenario(scenario_id: str, voice: str, mood: str, profile: str, re
         print("Press Ctrl+C to exit.")
         print("-" * 60)
 
-        # AudioIO renders transcripts through the shared console
+        # AudioIO renders transcripts through the shared console. Echo cancellation
+        # removes the customer's voice from the mic so speakers work without headphones.
         console = ConsoleIO(placeholder="Agent> ")
-        audio_io = AudioIO(console=console)
+        audio_io = AudioIO(console=console, audio_processor=echo_cancellation)
         await agent.run(
             inputs=[audio_io.input(), console.input()],
             outputs=[audio_io.output()],
@@ -314,6 +316,7 @@ def main():
     parser.add_argument("--region", default=DEFAULT_REGION, help=f"AWS region (default: {DEFAULT_REGION})")
     parser.add_argument("--delay", type=float, default=2.0, help="Seconds between turns in auto mode (default: 2.0)")
     parser.add_argument("--interactive", action="store_true", help="Interactive mode: type lines manually with audio")
+    parser.add_argument("--no-echo-cancellation", action="store_true", help="Disable echo cancellation (use with headphones) in interactive mode")
     parser.add_argument("--list", action="store_true", help="List available scenarios and exit")
     parser.add_argument("--max-turns", type=int, default=15, help="Max conversation turns in auto mode (default: 15)")
     parser.add_argument("--show-script", action="store_true", help="Show the agent script lines to type")
@@ -351,6 +354,7 @@ def main():
         args.scenario, args.voice, args.mood, args.profile, args.region,
         interactive=args.interactive, delay=args.delay,
         max_turns=args.max_turns,
+        echo_cancellation=not args.no_echo_cancellation,
     ))
 
 

@@ -148,6 +148,7 @@ async def run(
     region: str,
     text_only: bool,
     scenario_id: str,
+    echo_cancellation: bool = True,
 ) -> None:
     # Load scenario
     loader = ScenarioLoader(scenarios_dir=os.path.join(PROJECT_ROOT, "scenarios"))
@@ -198,9 +199,10 @@ async def run(
         )
 
     # -- I/O objects --
-    # AudioIO renders transcripts through the shared console
+    # AudioIO renders transcripts through the shared console. Echo cancellation
+    # removes the customer's voice from the mic so speakers work without headphones.
     text_io = ConsoleIO(placeholder="Agent> ")
-    audio_io = AudioIO(console=text_io)
+    audio_io = AudioIO(console=text_io, audio_processor=echo_cancellation and not text_only)
 
     if text_only:
         input_obj = text_io.input()
@@ -395,6 +397,10 @@ def main():
         help="Text-only mode: type agent lines instead of using microphone",
     )
     parser.add_argument(
+        "--no-echo-cancellation", action="store_true",
+        help="Disable echo cancellation (use with headphones)",
+    )
+    parser.add_argument(
         "--profile", default=DEFAULT_PROFILE,
         help="AWS profile (default: uses AWS credential chain)",
     )
@@ -416,6 +422,7 @@ def main():
             args.mood, voice_overrides,
             args.profile, args.region, args.text_only,
             args.scenario,
+            echo_cancellation=not args.no_echo_cancellation,
         ))
     except KeyboardInterrupt:
         print("\nSession ended.")

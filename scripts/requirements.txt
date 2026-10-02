@@ -2,4 +2,4 @@
 # Kept separate from the root requirements.txt because strands-agents[bidi-io]
 # requires rich>=15, which conflicts with strands-agents-evals (rich<15).
 -r ../src/agent/requirements.txt
-strands-agents[bidi,bidi-io,bidi-pyaudio]==1.57.2
+strands-agents[bidi,bidi-io,bidi-pyaudio,bidi-aec]==1.57.2
