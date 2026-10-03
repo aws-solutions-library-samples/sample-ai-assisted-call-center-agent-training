@@ -160,7 +160,7 @@ export class ConnectInstanceConstruct extends Construct {
         },
       },
     });
-    callRecordingsStorage.addDependency(instance);
+    callRecordingsStorage.addResourceDependency(instance);
 
     const contactLensStorage = new connect.CfnInstanceStorageConfig(this, 'ContactLensStorage', {
       instanceArn: instance.attrArn,
@@ -175,7 +175,7 @@ export class ConnectInstanceConstruct extends Construct {
         },
       },
     });
-    contactLensStorage.addDependency(instance);
+    contactLensStorage.addResourceDependency(instance);
 
     const chatTranscriptsStorage = new connect.CfnInstanceStorageConfig(this, 'ChatTranscriptsStorage', {
       instanceArn: instance.attrArn,
@@ -190,7 +190,7 @@ export class ConnectInstanceConstruct extends Construct {
         },
       },
     });
-    chatTranscriptsStorage.addDependency(instance);
+    chatTranscriptsStorage.addResourceDependency(instance);
 
     // Enable Lex Bot Management (required for configuring Lex bots in the Connect console).
     // Not exposed via CfnInstance.Attributes; toggle via connect:UpdateInstanceAttribute.
