@@ -1,6 +1,8 @@
 // Persistent audio context for smooth playback
 let playbackContext: AudioContext | null = null;
 let nextPlayTime = 0;
+// Scheduled sources that haven't finished, so playback can be cut on barge-in
+const activeSources = new Set<AudioBufferSourceNode>();
 // MediaStream destination for capturing playback audio (used by screen recording)
 let playbackStreamDest: MediaStreamAudioDestinationNode | null = null;
 
@@ -105,6 +107,8 @@ export function playAudioFromBase64(base64Data: string): void {
     const scheduleTime = Math.max(currentTime, nextPlayTime);
 
     source.start(scheduleTime);
+    activeSources.add(source);
+    source.onended = () => activeSources.delete(source);
 
     // Update next play time (duration of this buffer)
     const duration = audioBuffer.duration;
@@ -120,6 +124,28 @@ export function playAudioFromBase64(base64Data: string): void {
   }
 }
 
+/**
+ * Stop all scheduled customer audio immediately (e.g. when the trainee barges in).
+ * Trims the current speech block's tracked duration to what was actually heard.
+ */
+export function stopPlayback(): void {
+  activeSources.forEach((source) => {
+    try {
+      source.stop();
+    } catch {
+      // Source already stopped
+    }
+  });
+  activeSources.clear();
+  if (playbackContext) {
+    nextPlayTime = playbackContext.currentTime;
+  }
+  if (currentBlockStartMs !== null) {
+    const heardSeconds = (Date.now() - currentBlockStartMs) / 1000;
+    currentBlockDuration = Math.min(currentBlockDuration, heardSeconds);
+  }
+}
+
 // Get the playback audio as a MediaStream (for screen recording)
 export function getPlaybackStream(): MediaStream | null {
   return playbackStreamDest?.stream ?? null;
@@ -127,6 +153,7 @@ export function getPlaybackStream(): MediaStream | null {
 
 // Clean up audio context
 export function closeAudioContext(): void {
+  activeSources.clear();
   if (playbackContext) {
     playbackContext.close();
     playbackContext = null;

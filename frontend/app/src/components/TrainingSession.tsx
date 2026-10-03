@@ -13,7 +13,7 @@ import type { Scenario, TranscriptMessage, SessionStatus, ScoringData, ScreenCap
 import { useAudioCapture } from '../hooks/useAudioCapture';
 import { useScreenCapture } from '../hooks/useScreenCapture';
 import { useAudioRecording } from '../hooks/useAudioRecording';
-import { playAudioFromBase64, closeAudioContext, getPlaybackStream, initPlaybackContext, setPlaybackSessionStart, getAndResetPlaybackTiming } from '../utils/audioUtils';
+import { playAudioFromBase64, stopPlayback, closeAudioContext, getPlaybackStream, initPlaybackContext, setPlaybackSessionStart, getAndResetPlaybackTiming } from '../utils/audioUtils';
 import { generatePresignedWebSocketUrl, AgentCoreWebSocketClient } from '../services/websocket-presigned';
 import { requestScoring } from '../services/scoring';
 import { createSession } from '../services/scenarios';
@@ -45,6 +45,8 @@ export const TrainingSession = ({ scenario, voiceId, customerMood, languageMode,
   const [isEndingSession, setIsEndingSession] = useState(false);
   const [isStartingSession, setIsStartingSession] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  // Shown while Strands refreshes the Nova Sonic connection (~every 7 minutes)
+  const [connectionNotice, setConnectionNotice] = useState<'reconnecting' | 'turn_interrupted' | null>(null);
 
   // Timer state
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
@@ -125,7 +127,7 @@ export const TrainingSession = ({ scenario, voiceId, customerMood, languageMode,
         console.log('[Event] Session started, id:', event.session_id);
         break;
 
-      case 'bidi_audio_stream':
+      case 'bidi_audio_delta':
           console.log('[Event]', eventType);
         // Play audio from Nova Sonic (customer voice)
         if (event.audio) {
@@ -133,15 +135,18 @@ export const TrainingSession = ({ scenario, voiceId, customerMood, languageMode,
         }
         break;
 
-      case 'bidi_transcript_stream': {
-        // Strands provides is_final flag — only show final transcripts (no duplicates)
+      case 'bidi_transcript_block': {
+        // Completed transcript — partial bidi_transcript_delta events are ignored (no duplicates)
         const role = event.role || 'assistant';
-        const text = event.text || '';
-        const isFinal = event.is_final;
+        const text = event.transcript || '';
 
-        console.log('[Event] Transcript:', role, 'is_final:', isFinal, text?.substring(0, 50));
+        console.log('[Event] Transcript:', role, text?.substring(0, 50));
 
-        if (isFinal && text) {
+        if (text) {
+          // Trainee spoke again, so any "please repeat" notice is resolved
+          if (role === 'user') {
+            setConnectionNotice((notice) => (notice === 'turn_interrupted' ? null : notice));
+          }
           const characterName = event.character_name;
           const speaker = role === 'user' ? 'You' : (characterName || 'Customer');
           addTranscriptMessage(speaker, text);
@@ -190,12 +195,27 @@ export const TrainingSession = ({ scenario, voiceId, customerMood, languageMode,
         break;
       }
 
-      case 'bidi_interruption':
+      case 'bidi_barge_in':
+        // Trainee interrupted the customer: cut off any queued customer audio
         console.log('[Event] Interruption detected', event);
+        stopPlayback();
         break;
 
-      case 'tool_use_stream':
-        console.log('[Event] Tool use:', event.current_tool_use?.name);
+      case 'bidi_connection_warning':
+        setConnectionNotice('reconnecting');
+        break;
+
+      case 'bidi_connection_restart':
+        console.log('[Event] Connection restart:', event.reason, 'turn_interrupted:', event.turn_interrupted);
+        setConnectionNotice(event.turn_interrupted ? 'turn_interrupted' : 'reconnecting');
+        break;
+
+      case 'bidi_connection_start':
+        setConnectionNotice((notice) => (notice === 'reconnecting' ? null : notice));
+        break;
+
+      case 'bidi_tool_use_blocks':
+        console.log('[Event] Tool use:', event.tool_uses?.map((t: { name: string }) => t.name));
         break;
 
       case 'tool_result':
@@ -204,6 +224,18 @@ export const TrainingSession = ({ scenario, voiceId, customerMood, languageMode,
 
       case 'error':
         console.error('[Event] Error:', event.message);
+        break;
+
+      // Lifecycle and partial events — no UI handling needed
+      case 'bidi_response_start':
+      case 'bidi_response_stop':
+      case 'bidi_audio_start':
+      case 'bidi_audio_stop':
+      case 'bidi_transcript_start':
+      case 'bidi_transcript_delta':
+      case 'bidi_transcript_stop':
+      case 'bidi_usage':
+      case 'tool_stream':
         break;
 
       default:
@@ -688,6 +720,19 @@ export const TrainingSession = ({ scenario, voiceId, customerMood, languageMode,
                 </Button>
               </SpaceBetween>
             </Box>
+          )}
+
+          {sessionStatus === 'active' && connectionNotice === 'reconnecting' && (
+            <Alert type="info">
+              Refreshing the connection. The customer may pause for a moment.
+            </Alert>
+          )}
+
+          {sessionStatus === 'active' && connectionNotice === 'turn_interrupted' && (
+            <Alert type="warning" dismissible onDismiss={() => setConnectionNotice(null)}>
+              The connection was refreshed while you were talking. The customer may not have heard
+              your last sentence, so please repeat it.
+            </Alert>
           )}
 
           {isCapturing && (

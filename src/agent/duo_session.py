@@ -9,8 +9,8 @@ import logging
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
-from strands.experimental.bidi.agent import BidiAgent
-from strands.experimental.bidi.models.nova_sonic import BidiNovaSonicModel
+from strands.bidi import BidiAgent
+from strands.bidi.models.bedrock import BedrockNovaSonicModel
 from strands.tools.decorator import tool
 from strands.types.tools import ToolContext
 
@@ -19,6 +19,8 @@ from src.customer_prompt import build_character_prompt
 from src.scenarios.loader import Character, Scenario
 from src.voices import get_locale_voice_id
 from src.agent.tools import verify_spelling
+from src.agent.protocol import to_agent_input, to_client_event
+from src.agent.usage import NovaSonicUsage
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +117,7 @@ async def run_duo_session(
     ws_receive: Callable,
     ws_send: Callable,
     session_recorder: Any = None,
+    usage: Optional[NovaSonicUsage] = None,
 ) -> None:
     """Run a multi-character duo session.
 
@@ -127,6 +130,7 @@ async def run_duo_session(
         ws_receive: Async callable that returns the next WebSocket message (dict).
         ws_send: Async callable that sends a dict to the WebSocket.
         session_recorder: Optional SessionRecorder for transcript capture.
+        usage: Optional tracker that accumulates Nova Sonic token usage for the session.
     """
     characters = scenario.characters
     if not characters or len(characters) < 2:
@@ -146,16 +150,14 @@ async def run_duo_session(
         voice = character_voices.get(char.id, char.voice)
         locale_voice = get_locale_voice_id(voice, language_mode)
         logger.info(f"Character {char.id}: using locale-prefixed voice {locale_voice}")
-        model = BidiNovaSonicModel(
+        model = BedrockNovaSonicModel(
             region=aws_region,
             model_id=NOVA_SONIC_MODEL_ID,
-            provider_config={
-                "audio": {
-                    "input_rate": 16000,
-                    "output_rate": 24000,
-                    "voice": locale_voice,
-                }
+            audio={
+                "input": {"sample_rate": 16000},
+                "output": {"sample_rate": 24000},
             },
+            voice=locale_voice,
         )
         prompt = build_character_prompt(
             char,
@@ -181,20 +183,28 @@ async def run_duo_session(
     async def character_output_task(char_id: str):
         """Receive events from a character's agent and forward to WebSocket."""
         agent = agents[char_id]
-        async for event in agent.receive():
+        async for agent_event in agent.receive():
+            # Count usage even after hand_off flips "active": this character's
+            # connection stays open (and billed) until the handoff stops it
+            if usage:
+                usage.on_event(agent_event)
+
             # Only forward output from the active character
             if state["active"] == char_id:
-                event_type = event.get("type", "")
+                event = to_client_event(agent_event)
+                if event is None:
+                    continue
+                event_type = event["type"]
 
                 # Enrich transcript events with character name
-                if event_type == "bidi_transcript_stream":
+                if event_type.startswith("bidi_transcript_"):
                     event["character_id"] = char_id
                     event["character_name"] = char_map[char_id].name
 
-                    # Record transcript
-                    if event.get("is_final") and session_recorder and session_recorder.is_recording:
+                    # Record transcript (completed blocks only)
+                    if event_type == "bidi_transcript_block" and session_recorder and session_recorder.is_recording:
                         role = event.get("role", "unknown")
-                        text = event.get("text", "")
+                        text = event.get("transcript", "")
                         speaker = f"customer ({char_map[char_id].name})" if role == "assistant" else "agent"
                         audio_start_time = (datetime.now() - session_recorder.start_time).total_seconds()
                         session_recorder.add_transcript_turn(
@@ -239,6 +249,8 @@ async def run_duo_session(
                     pass
                 state["output_handles"][cid] = None
             await agents[cid].stop()
+            if usage:
+                usage.end_connection()
         state["ready"].clear()
 
         # Copy messages from source to target, re-roling other character's lines
@@ -280,7 +292,9 @@ async def run_duo_session(
     async def input_task():
         """Read from WebSocket and forward to active agent."""
         while True:
-            event = await ws_receive()
+            event = to_agent_input(await ws_receive())
+            if event is None:
+                continue
 
             # Check for pending handoff
             if state.get("pending_handoff"):

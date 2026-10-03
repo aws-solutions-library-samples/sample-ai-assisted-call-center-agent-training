@@ -17,8 +17,8 @@ from fastapi.responses import JSONResponse
 # Add parent directory to path for imports
 sys.path.insert(0, '/app')
 
-from strands.experimental.bidi.agent import BidiAgent
-from strands.experimental.bidi.models.nova_sonic import BidiNovaSonicModel
+from strands.bidi import BidiAgent
+from strands.bidi.models.bedrock import BedrockNovaSonicModel
 from src.config.models import NOVA_SONIC_MODEL_ID
 from src.config.user_agent import boto_config
 from src.scenarios.loader import ScenarioLoader
@@ -27,6 +27,8 @@ from src.customer_prompt import build_system_prompt
 from src.voices import get_locale_voice_id
 from src.agent.tools import verify_spelling
 from src.agent.duo_session import run_duo_session
+from src.agent.protocol import to_agent_input, to_client_event
+from src.agent.usage import NovaSonicUsage
 import boto3
 
 # Configure logging
@@ -101,8 +103,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
     Protocol:
     1. Client sends config: {"type": "session_config", "scenario_id": "...", "voice_id": "...", "session_id": "..."}
-    2. Client sends audio: {"type": "bidi_audio_input", "audio": "<base64>", ...}
-    3. Server sends back: bidi_audio_stream, bidi_transcript_stream, bidi_interruption, etc.
+    2. Client sends audio: {"audio_delta": {"format": "pcm", "source": {"bytes": "<base64>"}}}
+    3. Server sends back Strands bidi events: bidi_audio_delta, bidi_transcript_block, bidi_barge_in, etc.
     4. Client closes WebSocket to end session
     """
     logger.info(f"WebSocket connection from: {websocket.client}")
@@ -113,6 +115,7 @@ async def websocket_endpoint(websocket: WebSocket):
     aws_region = os.getenv("AWS_DEFAULT_REGION", os.getenv("AWS_REGION", "us-west-2"))
     session_recorder = None
     session_id = None
+    nova_sonic_usage = NovaSonicUsage()
 
     try:
         # Step 1: Wait for session config message
@@ -172,9 +175,6 @@ async def websocket_endpoint(websocket: WebSocket):
         effective_session_id = session_id or (session_recorder.session_id if session_recorder else None)
         await websocket.send_json({"type": "session_started", "session_id": effective_session_id})
 
-        # Token usage accumulator for Nova Sonic
-        nova_sonic_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
-
         # Step 2: Run session (duo or single-agent)
         if scenario and scenario.is_duo:
             # --- Duo mode: multiple characters with handoff ---
@@ -191,6 +191,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     ws_receive=websocket.receive_json,
                     ws_send=websocket.send_json,
                     session_recorder=session_recorder,
+                    usage=nova_sonic_usage,
                 )
             except asyncio.CancelledError:
                 logger.info("Duo session cancelled (graceful shutdown)")
@@ -199,16 +200,14 @@ async def websocket_endpoint(websocket: WebSocket):
             # --- Single-agent mode (original flow) ---
             locale_voice = get_locale_voice_id(voice_id, language_mode)
             logger.info(f"Using locale-prefixed voice: {locale_voice}")
-            model = BidiNovaSonicModel(
+            model = BedrockNovaSonicModel(
                 region=aws_region,
                 model_id=NOVA_SONIC_MODEL_ID,
-                provider_config={
-                    "audio": {
-                        "input_rate": 16000,
-                        "output_rate": 24000,
-                        "voice": locale_voice,
-                    }
+                audio={
+                    "input": {"sample_rate": 16000},
+                    "output": {"sample_rate": 24000},
                 },
+                voice=locale_voice,
             )
 
             agent = BidiAgent(
@@ -220,34 +219,31 @@ async def websocket_endpoint(websocket: WebSocket):
             logger.info("BidiAgent created, starting session")
 
             # Recording-aware output wrapper
-            async def recording_output(event: dict):
+            async def recording_output(agent_event: dict):
                 """Intercept output events for recording, then forward to WebSocket"""
                 try:
-                    event_type = event.get("type", "")
+                    event = to_client_event(agent_event)
+                    if event is None:
+                        return
+                    event_type = event["type"]
 
-                    # Record transcript (only final transcripts — no duplicates)
-                    if event_type == "bidi_transcript_stream" and session_recorder and session_recorder.is_recording:
-                        is_final = event.get("is_final", False)
-                        if is_final:
-                            role = event.get("role", "unknown")
-                            text = event.get("text", "")
-                            speaker = "customer" if role == "assistant" else "agent"
+                    # Record transcript (completed blocks only — no partial deltas)
+                    if event_type == "bidi_transcript_block" and session_recorder and session_recorder.is_recording:
+                        role = event.get("role", "unknown")
+                        text = event.get("transcript", "")
+                        speaker = "customer" if role == "assistant" else "agent"
 
-                            audio_start_time = (datetime.now() - session_recorder.start_time).total_seconds()
-                            session_recorder.add_transcript_turn(
-                                speaker=speaker,
-                                text=text,
-                                audio_start_time=audio_start_time,
-                                audio_duration=0.0
-                            )
-                            logger.info(f"Recorded transcript: {speaker} - {text[:50]}...")
+                        audio_start_time = (datetime.now() - session_recorder.start_time).total_seconds()
+                        session_recorder.add_transcript_turn(
+                            speaker=speaker,
+                            text=text,
+                            audio_start_time=audio_start_time,
+                            audio_duration=0.0
+                        )
+                        logger.info(f"Recorded transcript: {speaker} - {text[:50]}...")
 
-                    # Capture token usage from bidi_usage events.
-                    # BidiAgent emits cumulative totals, so overwrite rather than sum.
-                    if event_type == "bidi_usage":
-                        nova_sonic_usage["input_tokens"] = event.get("inputTokens", nova_sonic_usage["input_tokens"])
-                        nova_sonic_usage["output_tokens"] = event.get("outputTokens", nova_sonic_usage["output_tokens"])
-                        nova_sonic_usage["total_tokens"] = event.get("totalTokens", nova_sonic_usage["total_tokens"])
+                    # Capture token usage (handles per-connection resets on restart)
+                    nova_sonic_usage.on_event(event)
 
                     # Forward event to WebSocket client
                     await websocket.send_json(event)
@@ -257,8 +253,11 @@ async def websocket_endpoint(websocket: WebSocket):
 
             # Input wrapper
             async def recording_input():
-                """Read from WebSocket."""
-                return await websocket.receive_json()
+                """Read from WebSocket, skipping messages the agent doesn't accept."""
+                while True:
+                    agent_input = to_agent_input(await websocket.receive_json())
+                    if agent_input is not None:
+                        return agent_input
 
             try:
                 await agent.run(
@@ -283,18 +282,17 @@ async def websocket_endpoint(websocket: WebSocket):
         if session_recorder and session_recorder.is_recording:
             try:
                 # Attach Nova Sonic token usage to session metadata
-                if nova_sonic_usage["total_tokens"] > 0:
+                usage_totals = nova_sonic_usage.totals()
+                if usage_totals["total_tokens"] > 0:
                     session_recorder.token_usage = {
                         "nova_sonic": {
                             "model": NOVA_SONIC_MODEL_ID,
-                            "input_tokens": nova_sonic_usage["input_tokens"],
-                            "output_tokens": nova_sonic_usage["output_tokens"],
-                            "total_tokens": nova_sonic_usage["total_tokens"],
+                            **usage_totals,
                         }
                     }
                     logger.info("TOKEN_USAGE component=nova_sonic model=%s input_tokens=%d output_tokens=%d total_tokens=%d session_id=%s",
-                                NOVA_SONIC_MODEL_ID, nova_sonic_usage["input_tokens"],
-                                nova_sonic_usage["output_tokens"], nova_sonic_usage["total_tokens"],
+                                NOVA_SONIC_MODEL_ID, usage_totals["input_tokens"],
+                                usage_totals["output_tokens"], usage_totals["total_tokens"],
                                 session_id)
 
                 logger.info("Stopping recording and uploading to S3")

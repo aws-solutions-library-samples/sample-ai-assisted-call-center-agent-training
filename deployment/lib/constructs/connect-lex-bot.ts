@@ -187,7 +187,7 @@ export class ConnectLexBotConstruct extends Construct {
       integrationType: 'LEX_BOT',
       integrationArn: botAlias.attrArn,
     });
-    integration.addDependency(botAlias);
+    integration.addResourceDependency(botAlias);
 
     new cdk.CfnOutput(scope, 'LexBotAliasArn', {
       value: botAlias.attrArn,

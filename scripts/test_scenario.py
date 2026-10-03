@@ -17,7 +17,6 @@ Usage:
 
 import argparse
 import asyncio
-import base64
 from datetime import datetime
 import re
 import sys
@@ -31,14 +30,10 @@ sys.path.insert(0, PROJECT_ROOT)
 
 from src.config.models import NOVA_SONIC_MODEL_ID, NOVA_LITE_MODEL_ID
 from strands import Agent
-from strands.experimental.bidi.agent import BidiAgent
-from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
-from strands.experimental.bidi.models.nova_sonic import BidiNovaSonicModel
-from strands.experimental.bidi.tools import stop_conversation
-from strands.experimental.bidi.types.events import (
-    BidiAudioInputEvent,
-    BidiTextInputEvent,
-)
+from strands.bidi import BidiAgent
+from strands.bidi.io import AudioIO, ConsoleIO
+from strands.bidi.models.bedrock import BedrockNovaSonicModel
+from strands.bidi.types.media import AudioDelta
 
 from src.scenarios.loader import ScenarioLoader
 from src.customer_prompt import (
@@ -154,7 +149,8 @@ def list_scenarios(loader: ScenarioLoader) -> None:
 
 async def run_scenario(scenario_id: str, voice: str, mood: str, profile: str, region: str,
                        interactive: bool = False, delay: float = 2.0,
-                       max_turns: int = 15, loader: ScenarioLoader | None = None) -> None:
+                       max_turns: int = 15, loader: ScenarioLoader | None = None,
+                       echo_cancellation: bool = True) -> None:
     """Run a scenario against Nova Sonic."""
     if loader is None:
         loader = ScenarioLoader(scenarios_dir=os.path.join(PROJECT_ROOT, "scenarios"))
@@ -172,19 +168,14 @@ async def run_scenario(scenario_id: str, voice: str, mood: str, profile: str, re
     print(f"Voice: {voice} | Mood: {mood}")
 
     session = boto3.Session(profile_name=profile, region_name=region)
-    model = BidiNovaSonicModel(
+    model = BedrockNovaSonicModel(
+        boto_session=session,
         model_id=NOVA_SONIC_MODEL_ID,
-        provider_config={
-            "audio": {
-                "voice": voice,
-            },
-        },
-        client_config={"boto_session": session},
+        voice=voice,
     )
 
     agent = BidiAgent(
         model=model,
-        tools=[stop_conversation],
         system_prompt=system_prompt,
     )
 
@@ -201,11 +192,13 @@ async def run_scenario(scenario_id: str, voice: str, mood: str, profile: str, re
         print("Press Ctrl+C to exit.")
         print("-" * 60)
 
-        audio_io = BidiAudioIO()
-        text_io = BidiTextIO(input_prompt="Agent> ")
+        # AudioIO renders transcripts through the shared console. Echo cancellation
+        # removes the customer's voice from the mic so speakers work without headphones.
+        console = ConsoleIO(placeholder="Agent> ")
+        audio_io = AudioIO(console=console, audio_processor=echo_cancellation)
         await agent.run(
-            inputs=[audio_io.input(), text_io.input()],
-            outputs=[audio_io.output(), text_io.output()],
+            inputs=[audio_io.input(), console.input()],
+            outputs=[audio_io.output()],
         )
     else:
         # Automated mode: LLM generates agent lines, Nova Sonic responds as customer
@@ -223,19 +216,14 @@ async def run_scenario(scenario_id: str, voice: str, mood: str, profile: str, re
         async with agent:
             # Background task: feed silent audio to keep Nova Sonic alive
             async def feed_silence():
-                rate = agent.model.config["audio"]["input_rate"]
-                channels = agent.model.config["audio"]["channels"]
-                fmt = agent.model.config["audio"]["format"]
+                input_audio = agent.model.get_audio_config()["input"]
+                rate = input_audio["sample_rate"]
+                channels = input_audio["channels"]
                 chunk_size = int(rate * 0.02) * 2 * channels
                 while True:
                     await asyncio.sleep(0.02)
                     silent = b"\x00" * chunk_size
-                    await agent.send(BidiAudioInputEvent(
-                        audio=base64.b64encode(silent).decode("utf-8"),
-                        format=fmt,
-                        sample_rate=rate,
-                        channels=channels,
-                    ))
+                    await agent.send(AudioDelta(format=input_audio["format"], source={"bytes": silent}))
 
             audio_task = asyncio.create_task(feed_silence())
 
@@ -246,17 +234,17 @@ async def run_scenario(scenario_id: str, voice: str, mood: str, profile: str, re
                 for turn in range(max_turns):
                     print(f"\nAgent [{turn+1}]: {csr_response}")
                     transcript.append(("Agent", csr_response))
-                    await agent.send(BidiTextInputEvent(text=csr_response, role="user"))
+                    await agent.send(csr_response)
 
                     # Get customer response from Nova Sonic
                     customer_text = None
                     async for event in agent.receive():
                         event_type = event.get("type")
-                        if event_type == "bidi_transcript_stream":
-                            if event["is_final"] and event["role"] == "assistant":
-                                customer_text = event["text"]
+                        if event_type == "bidi_transcript_block":
+                            if event["role"] == "assistant":
+                                customer_text = event["transcript"]
                                 break
-                        elif event_type == "bidi_connection_close":
+                        elif event_type == "bidi_connection_stop":
                             break
 
                     if not customer_text:
@@ -328,6 +316,7 @@ def main():
     parser.add_argument("--region", default=DEFAULT_REGION, help=f"AWS region (default: {DEFAULT_REGION})")
     parser.add_argument("--delay", type=float, default=2.0, help="Seconds between turns in auto mode (default: 2.0)")
     parser.add_argument("--interactive", action="store_true", help="Interactive mode: type lines manually with audio")
+    parser.add_argument("--no-echo-cancellation", action="store_true", help="Disable echo cancellation (use with headphones) in interactive mode")
     parser.add_argument("--list", action="store_true", help="List available scenarios and exit")
     parser.add_argument("--max-turns", type=int, default=15, help="Max conversation turns in auto mode (default: 15)")
     parser.add_argument("--show-script", action="store_true", help="Show the agent script lines to type")
@@ -365,6 +354,7 @@ def main():
         args.scenario, args.voice, args.mood, args.profile, args.region,
         interactive=args.interactive, delay=args.delay,
         max_turns=args.max_turns,
+        echo_cancellation=not args.no_echo_cancellation,
     ))
 
 

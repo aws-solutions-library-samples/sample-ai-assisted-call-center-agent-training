@@ -3,7 +3,7 @@ boto3>=1.35.0
 botocore>=1.35.0
 
 # Strands Agents SDK with bidirectional streaming support (Nova Sonic)
-strands-agents[bidi]==1.24.0
+strands-agents[bidi]==1.57.2
 strands-agents-evals
 
 # Audio processing

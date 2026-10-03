@@ -29,9 +29,9 @@ import boto3
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-from strands.experimental.bidi.agent import BidiAgent
-from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
-from strands.experimental.bidi.models.nova_sonic import BidiNovaSonicModel
+from strands.bidi import BidiAgent
+from strands.bidi.io import AudioIO, ConsoleIO
+from strands.bidi.models.bedrock import BedrockNovaSonicModel
 from strands.tools.decorator import tool
 from strands.types.tools import ToolContext
 
@@ -148,6 +148,7 @@ async def run(
     region: str,
     text_only: bool,
     scenario_id: str,
+    echo_cancellation: bool = True,
 ) -> None:
     # Load scenario
     loader = ScenarioLoader(scenarios_dir=os.path.join(PROJECT_ROOT, "scenarios"))
@@ -185,10 +186,10 @@ async def run(
     agents = {}
     for char in characters:
         voice = voice_overrides.get(char.id, char.voice)
-        model = BidiNovaSonicModel(
+        model = BedrockNovaSonicModel(
+            boto_session=session,
             model_id=NOVA_SONIC_MODEL_ID,
-            provider_config={"audio": {"voice": voice}},
-            client_config={"boto_session": session},
+            voice=voice,
         )
         prompt = build_character_prompt(char, customer_mood=mood)
         agents[char.id] = BidiAgent(
@@ -198,8 +199,10 @@ async def run(
         )
 
     # -- I/O objects --
-    audio_io = BidiAudioIO()
-    text_io = BidiTextIO(input_prompt="Agent> ")
+    # AudioIO renders transcripts through the shared console. Echo cancellation
+    # removes the customer's voice from the mic so speakers work without headphones.
+    text_io = ConsoleIO(placeholder="Agent> ")
+    audio_io = AudioIO(console=text_io, audio_processor=echo_cancellation and not text_only)
 
     if text_only:
         input_obj = text_io.input()
@@ -207,7 +210,6 @@ async def run(
     else:
         input_obj = audio_io.input()
         output_obj = audio_io.output()
-        text_output_obj = text_io.output()
 
     # Mutable state shared across tasks (single-threaded asyncio — no lock needed)
     state = {"active": primary.id, "pending_handoff": None}
@@ -313,11 +315,7 @@ async def run(
         """Process a character's output. Always drain to avoid blocking."""
         async for event in agents[char_id].receive():
             if state["active"] == char_id:
-                if text_only:
-                    await output_obj(event)
-                else:
-                    await output_obj(event)
-                    await text_output_obj(event)
+                await output_obj(event)
 
     async def _await_output(char_id: str):
         """Wrapper that survives output task being cancelled on restart."""
@@ -334,8 +332,6 @@ async def run(
     await agents[primary.id].start(invocation_state=invocation_state)
     await input_obj.start(agents[primary.id])
     await output_obj.start(agents[primary.id])
-    if not text_only:
-        await text_output_obj.start(agents[primary.id])
 
     state[f"{primary.id}_output_handle"] = asyncio.create_task(output_task(primary.id))
 
@@ -362,8 +358,6 @@ async def run(
     finally:
         await input_obj.stop()
         await output_obj.stop()
-        if not text_only:
-            await text_output_obj.stop()
         for cid in agents:
             try:
                 handle = state.get(f"{cid}_output_handle")
@@ -403,6 +397,10 @@ def main():
         help="Text-only mode: type agent lines instead of using microphone",
     )
     parser.add_argument(
+        "--no-echo-cancellation", action="store_true",
+        help="Disable echo cancellation (use with headphones)",
+    )
+    parser.add_argument(
         "--profile", default=DEFAULT_PROFILE,
         help="AWS profile (default: uses AWS credential chain)",
     )
@@ -424,6 +422,7 @@ def main():
             args.mood, voice_overrides,
             args.profile, args.region, args.text_only,
             args.scenario,
+            echo_cancellation=not args.no_echo_cancellation,
         ))
     except KeyboardInterrupt:
         print("\nSession ended.")
