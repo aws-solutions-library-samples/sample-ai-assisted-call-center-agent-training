@@ -1,6 +1,7 @@
 """Session recorder for capturing training conversations"""
 import json
 import logging
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,16 @@ logger = logging.getLogger(__name__)
 
 # Import data classes from session_types (no audio dependencies)
 from .session_types import ConversationTurn, SessionRecording
+
+# Session IDs are UUIDs or timestamps; restrict to safe filename characters
+# since they come from the client and are used to build file paths and S3 keys.
+_SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
+def _validate_session_id(session_id: str) -> str:
+    if not isinstance(session_id, str) or not _SESSION_ID_PATTERN.fullmatch(session_id):
+        raise ValueError(f"Invalid session_id: {session_id!r}")
+    return session_id
 
 
 class SessionRecorder:
@@ -36,7 +47,7 @@ class SessionRecorder:
                        customer_mood: str, difficulty: str, session_id: str = None,
                        user_id: str = "", user_name: str = "") -> str:
         """Start recording a new session."""
-        self.session_id = session_id or datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.session_id = _validate_session_id(session_id or datetime.now().strftime("%Y%m%d_%H%M%S"))
         self.start_time = datetime.now()
         self._start_time_mono = time.monotonic()
         self.transcript = []
@@ -118,7 +129,7 @@ class SessionRecorder:
 
     def load_recording(self, session_id: str) -> Optional[SessionRecording]:
         """Load a previously recorded session."""
-        json_path = self.recordings_dir / f"{session_id}_server_transcript.json"
+        json_path = self.recordings_dir / f"{_validate_session_id(session_id)}_server_transcript.json"
 
         if not json_path.exists():
             return None
@@ -160,7 +171,7 @@ class SessionRecorder:
 
         s3_client = boto3.client('s3', config=boto_config())
 
-        json_file = self.recordings_dir / f"{session_id}_server_transcript.json"
+        json_file = self.recordings_dir / f"{_validate_session_id(session_id)}_server_transcript.json"
 
         s3_urls = {}
         upload_args = {}
