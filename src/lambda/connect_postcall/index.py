@@ -22,7 +22,7 @@ import subprocess  # nosec B404
 import tempfile
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 import boto3
@@ -148,6 +148,22 @@ def extract_agent_channel(stereo_wav_path: str, temp_dir: str) -> str:
     return agent_wav_path
 
 
+def _flag_trainee_interruptions(turns: List[Dict], interruptions: Dict) -> None:
+    """Mark trainee turns that Contact Lens reports as interrupting the AI customer.
+
+    The trainee is the CUSTOMER participant; flag the trainee turn containing
+    each interruption's start offset.
+    """
+    trainee_interruptions = interruptions.get('InterruptionsByInterrupter', {}).get('CUSTOMER', [])
+    for interruption in trainee_interruptions:
+        start_s = interruption.get('BeginOffsetMillis', 0) / 1000.0
+        for turn in turns:
+            turn_end = turn['audio_start_time'] + turn['audio_duration']
+            if turn['speaker'] == 'agent' and turn['audio_start_time'] <= start_s <= turn_end:
+                turn['talk_over'] = True
+                break
+
+
 def convert_to_session_recording(
     cl_data: Dict,
     session: Dict,
@@ -173,9 +189,11 @@ def convert_to_session_recording(
             'text': entry.get('Content', ''),
             'audio_start_time': begin_ms / 1000.0,
             'audio_duration': (end_ms - begin_ms) / 1000.0,
+            'talk_over': False,
         })
 
     conv_chars = cl_data.get('ConversationCharacteristics', {})
+    _flag_trainee_interruptions(turns, conv_chars.get('Interruptions', {}))
     total_duration_ms = conv_chars.get('TotalConversationDurationMillis', 0)
 
     return {

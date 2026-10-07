@@ -42,6 +42,7 @@ class SessionRecorder:
         self.transcript: List[ConversationTurn] = []
         self.is_recording = False
         self.token_usage: Optional[Dict[str, Any]] = None
+        self._pending_barge_in = False
 
     def start_recording(self, scenario_id: str, scenario_name: str,
                        customer_mood: str, difficulty: str, session_id: str = None,
@@ -51,6 +52,7 @@ class SessionRecorder:
         self.start_time = datetime.now()
         self._start_time_mono = time.monotonic()
         self.transcript = []
+        self._pending_barge_in = False
         self.is_recording = True
         self.user_id = user_id
         self.user_name = user_name
@@ -74,14 +76,26 @@ class SessionRecorder:
         if not self.is_recording:
             return
 
+        # Barge-in fires when the agent starts speaking; their transcript arrives
+        # once they finish, so the next agent turn is the one that talked over
+        talk_over = speaker == "agent" and self._pending_barge_in
+        if talk_over:
+            self._pending_barge_in = False
+
         turn = ConversationTurn(
             timestamp=datetime.now().isoformat(),
             speaker=speaker,
             text=text,
             audio_start_time=audio_start_time,
-            audio_duration=audio_duration
+            audio_duration=audio_duration,
+            talk_over=talk_over,
         )
         self.transcript.append(turn)
+
+    def mark_barge_in(self) -> None:
+        """Record that the agent started speaking while the customer was talking."""
+        if self.is_recording:
+            self._pending_barge_in = True
 
     def stop_recording(self) -> SessionRecording:
         """Stop recording and save the session."""

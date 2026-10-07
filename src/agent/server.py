@@ -242,6 +242,9 @@ async def websocket_endpoint(websocket: WebSocket):
                         )
                         logger.info(f"Recorded transcript: {speaker} - {text[:50]}...")
 
+                    if event_type == "bidi_barge_in" and session_recorder:
+                        session_recorder.mark_barge_in()
+
                     # Capture token usage (handles per-connection resets on restart)
                     nova_sonic_usage.on_event(event)
 

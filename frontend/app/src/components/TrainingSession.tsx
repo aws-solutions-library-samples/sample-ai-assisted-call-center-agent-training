@@ -47,6 +47,8 @@ export const TrainingSession = ({ scenario, voiceId, customerMood, languageMode,
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   // Shown while Strands refreshes the Nova Sonic connection (~every 7 minutes)
   const [connectionNotice, setConnectionNotice] = useState<'reconnecting' | 'turn_interrupted' | null>(null);
+  // Set on barge-in; the trainee's next transcript is the turn that talked over the customer
+  const pendingBargeInRef = useRef(false);
 
   // Timer state
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
@@ -149,7 +151,9 @@ export const TrainingSession = ({ scenario, voiceId, customerMood, languageMode,
           }
           const characterName = event.character_name;
           const speaker = role === 'user' ? 'You' : (characterName || 'Customer');
-          addTranscriptMessage(speaker, text);
+          const talkOver = role === 'user' && pendingBargeInRef.current;
+          if (talkOver) pendingBargeInRef.current = false;
+          addTranscriptMessage(speaker, text, talkOver);
 
           // Build enriched transcript with accurate audio timing
           const startMs = sessionStartTimeRef.current;
@@ -199,6 +203,7 @@ export const TrainingSession = ({ scenario, voiceId, customerMood, languageMode,
         // Trainee interrupted the customer: cut off any queued customer audio
         console.log('[Event] Interruption detected', event);
         stopPlayback();
+        pendingBargeInRef.current = true;
         break;
 
       case 'bidi_connection_warning':
@@ -298,13 +303,21 @@ export const TrainingSession = ({ scenario, voiceId, customerMood, languageMode,
     }, 100);
   }, [transcript, isUserScrolling]);
 
-  const addTranscriptMessage = (speaker: string, text: string) => {
+  const addTranscriptMessage = (speaker: string, text: string, talkOver = false) => {
     const message: TranscriptMessage = {
       speaker,
       text,
       timestamp: Date.now(),
+      talkOver,
     };
-    setTranscript((prev) => [...prev, message]);
+    setTranscript((prev) => {
+      // Also mark the customer message that was interrupted
+      const last = prev[prev.length - 1];
+      if (talkOver && last && last.speaker !== 'You' && last.speaker !== 'System') {
+        return [...prev.slice(0, -1), { ...last, talkOver: true }, message];
+      }
+      return [...prev, message];
+    });
   };
 
   const startTraining = async () => {
@@ -813,16 +826,31 @@ export const TrainingSession = ({ scenario, voiceId, customerMood, languageMode,
                       padding: '12px',
                       backgroundColor: isCustomer ? '#f0f7ff' : isAgent ? '#f0fdf4' : '#f8fafc',
                       borderLeft: `4px solid ${isCustomer ? '#2563eb' : isAgent ? '#16a34a' : '#94a3b8'}`,
+                      borderRight: msg.talkOver ? '4px solid #f59e0b' : 'none',
                       borderRadius: '4px'
                     }}
                   >
                     <SpaceBetween size="xxs">
-                      <Box
-                        variant="strong"
-                        color={isCustomer ? 'text-status-info' : isAgent ? 'text-status-success' : 'inherit'}
-                      >
-                        {msg.speaker}
-                      </Box>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Box
+                          variant="strong"
+                          color={isCustomer ? 'text-status-info' : isAgent ? 'text-status-success' : 'inherit'}
+                        >
+                          {msg.speaker}
+                        </Box>
+                        {msg.talkOver && (
+                          <span style={{
+                            backgroundColor: '#fef3c7',
+                            color: '#92400e',
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                          }}>
+                            Talk-over
+                          </span>
+                        )}
+                      </div>
                       <Box>{msg.text}</Box>
                       <Box variant="small" color="text-body-secondary">
                         {new Date(msg.timestamp).toLocaleTimeString()}

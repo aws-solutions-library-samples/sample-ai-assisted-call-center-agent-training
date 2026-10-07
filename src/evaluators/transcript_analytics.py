@@ -12,13 +12,6 @@ SILENCE_THRESHOLD_SECONDS = 1.0
 # Maximum acceptable silence gap (seconds) before flagging a violation
 SILENCE_VIOLATION_THRESHOLD_SECONDS = 20.0
 
-# Minimum overlap (seconds) to count as a talk-over (filters timing imprecision)
-TALK_OVER_MIN_OVERLAP_SECONDS = 0.5
-
-# Minimum time (seconds) the current speaker must have been talking before the next
-# speaker starts, to count as a talk-over (filters transcript fragmentation)
-TALK_OVER_MIN_INTO_TURN_SECONDS = 1.0
-
 # Phrases that indicate lack of confidence / hedging
 WEAK_PHRASES = [
     "i don't know",
@@ -55,7 +48,9 @@ def compute_transcript_analytics(session: SessionRecording) -> Dict[str, Any]:
 
     silence_seconds, avg_response_time, max_gap, gaps = _compute_agent_silence(turns, duration)
     silence_violations = _count_silence_violations(gaps)
-    talk_over_count = _compute_talk_overs(turns)
+    # Turns are flagged at recording time: Nova Sonic barge-in (Web UI)
+    # or Contact Lens interruptions (Amazon Connect)
+    talk_over_count = sum(1 for turn in turns if turn.talk_over)
     questions_asked, questions_answered, questions_unanswered = _compute_questions(turns)
     hold_count = _detect_holds(turns)
     weak_phrase_count = _count_weak_phrases(turns)
@@ -115,32 +110,6 @@ def _count_silence_violations(
 ) -> int:
     """Count silence gaps that exceed the violation threshold (default 20s)."""
     return sum(1 for g in gaps if g >= threshold)
-
-
-def _compute_talk_overs(turns: List[ConversationTurn]) -> int:
-    """Count the number of times speakers overlap (talk over each other).
-
-    An overlap occurs when one turn hasn't finished (by audio timing)
-    before the next turn starts, and the speakers are different.
-    """
-    count = 0
-
-    for i in range(len(turns) - 1):
-        current = turns[i]
-        next_turn = turns[i + 1]
-
-        # Only count overlaps between different speakers
-        if current.speaker == next_turn.speaker:
-            continue
-
-        current_end = current.audio_start_time + current.audio_duration
-        overlap = current_end - next_turn.audio_start_time
-        time_into_turn = next_turn.audio_start_time - current.audio_start_time
-
-        if overlap > TALK_OVER_MIN_OVERLAP_SECONDS and time_into_turn > TALK_OVER_MIN_INTO_TURN_SECONDS:
-            count += 1
-
-    return count
 
 
 def _compute_questions(turns: List[ConversationTurn]) -> tuple:

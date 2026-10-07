@@ -16,23 +16,14 @@ import { getGrade, getGradeColor, transformScorecardCriteria } from '../../utils
 import { ScorecardRubric } from '../ScorecardRubric';
 import { CallAnalytics } from '../CallAnalytics';
 
-const TALK_OVER_MIN_OVERLAP = 0.5;
-const TALK_OVER_MIN_INTO_TURN = 1.0;
-
-function getTalkOverIndices(turns: { speaker: string; audio_start_time?: number; audio_duration?: number }[]): Set<number> {
+// Highlight agent turns flagged as talking over the customer, plus the customer turn they interrupted
+function getTalkOverIndices(turns: { speaker: string; talk_over?: boolean }[]): Set<number> {
   const indices = new Set<number>();
-  for (let i = 0; i < turns.length - 1; i++) {
-    const current = turns[i];
-    const next = turns[i + 1];
-    if (current.speaker === next.speaker) continue;
-    if (current.audio_start_time == null || current.audio_duration == null || next.audio_start_time == null) continue;
-    const overlap = (current.audio_start_time + current.audio_duration) - next.audio_start_time;
-    const timeIntoTurn = next.audio_start_time - current.audio_start_time;
-    if (overlap > TALK_OVER_MIN_OVERLAP && timeIntoTurn > TALK_OVER_MIN_INTO_TURN) {
-      indices.add(i);
-      indices.add(i + 1);
-    }
-  }
+  turns.forEach((turn, i) => {
+    if (!turn.talk_over) return;
+    indices.add(i);
+    if (i > 0 && turns[i - 1].speaker === 'customer') indices.add(i - 1);
+  });
   return indices;
 }
 

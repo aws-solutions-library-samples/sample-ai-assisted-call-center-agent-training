@@ -196,7 +196,7 @@ The scoring pipeline runs asynchronously after a training session ends. It uses 
 **Step 2: Compute Transcript Analytics**
 - `compute_transcript_analytics()` in `src/evaluators/transcript_analytics.py` extracts call metrics:
   - Representative silence (seconds, percentage, max gap, violations >20s)
-  - Talk-over count (overlapping speech detection)
+  - Talk-over count (turns flagged from Nova Sonic barge-in or Contact Lens interruptions)
   - Questions asked/answered by customer
   - Hold count (phrase detection)
   - Confidence language count (hedging phrases)
@@ -417,7 +417,7 @@ The prototype captures and evaluates the following performance metrics for each 
 | **Representative Silence** | Total seconds and percentage of the call where the representative was silent | Sum of gaps >= 1.0s between customer speech end and representative speech start |
 | **Max Silence Gap** | Longest single period of representative silence in seconds | Maximum individual gap in the silence gaps list |
 | **Silence Violations** | Count of silence gaps exceeding the acceptable threshold | Gaps > 20 seconds |
-| **Talk-Over Count** | Number of times the representative spoke over the customer | Detected when one speaker's audio end time overlaps the next speaker's start time |
+| **Talk-Over Count** | Number of times the representative spoke over the customer | Each representative turn that interrupted the customer is flagged at recording time: from Nova Sonic barge-in events (Web UI) or Contact Lens interruptions (Amazon Connect) |
 | **Average Representative Response Time** | Mean time in seconds between customer finishing and representative responding | Average of all customer-to-representative transition gaps |
 | **Hold Count** | Number of times the representative placed the caller on hold | Phrase detection in representative turns: "put you on hold", "place you on hold", "one moment please", "brief hold", etc. |
 | **Confidence Language Count** | Occurrences of hedging or low-confidence language | Phrase detection: "I don't know", "I'm not sure", "it looks like", "I think maybe", "I guess" |
@@ -735,7 +735,7 @@ The following items will need to be resolved to build a comprehensive business c
 - Multi-character (duo) scenario support enabling realistic multi-party interactions with AI-driven character handoffs during a single training session. This is an experimental feature and was not part of the scope or even stretch goals.
 - Admin dashboard for scenario management (CRUD operations, AI-powered scenario generation from call transcripts), trainee management, and per-scenario evaluation criteria configuration
 - Session recording with stereo audio capture (representative and customer on separate channels), real-time transcription, and S3 storage with KMS encryption and lifecycle policies
-- Real-time transcript display with talk-over detection — segments where the trainee speaks over the customer are highlighted in amber for immediate visual feedback
+- Real-time transcript display with talk-over detection — when Nova Sonic reports a barge-in, the trainee's interrupting turn and the customer turn it cut off are highlighted in amber for immediate visual feedback
 - Amazon Connect integration providing phone-based training as an alternative to the web UI, with automatic post-call scoring via EventBridge triggers
 
 ### Non-Functional Outcomes
