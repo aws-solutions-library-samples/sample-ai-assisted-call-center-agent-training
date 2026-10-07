@@ -23,6 +23,8 @@ export interface TranscriptMessage {
   speaker: string;
   text: string;
   timestamp: number;
+  /** Trainee spoke over the customer (or, on a customer message, was interrupted) */
+  talkOver?: boolean;
 }
 
 export interface SessionData {

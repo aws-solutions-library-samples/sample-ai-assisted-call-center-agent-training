@@ -196,6 +196,9 @@ async def run_duo_session(
                     continue
                 event_type = event["type"]
 
+                if event_type == "bidi_barge_in" and session_recorder:
+                    session_recorder.mark_barge_in()
+
                 # Enrich transcript events with character name
                 if event_type.startswith("bidi_transcript_"):
                     event["character_id"] = char_id

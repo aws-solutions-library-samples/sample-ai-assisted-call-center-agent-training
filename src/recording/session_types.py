@@ -11,6 +11,8 @@ class ConversationTurn:
     text: str
     audio_start_time: float
     audio_duration: float
+    # Agent turn that started while the customer was speaking
+    talk_over: bool = False
 
 
 @dataclass

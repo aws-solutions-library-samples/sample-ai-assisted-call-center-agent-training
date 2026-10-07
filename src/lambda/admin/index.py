@@ -206,7 +206,7 @@ def get_session_transcript(user_id: str, session_id: str):
 
     # Enrich with client-side timing (accurate audio_start_time and audio_duration).
     # The server transcript records audio_duration as 0.0; the client transcript
-    # has real measured values needed for talk-over detection in the admin UI.
+    # has real measured values.
     client_key = f'users/{user_id}/sessions/{session_id}/{session_id}_client_transcript.json'
     try:
         client_response = s3_client.get_object(Bucket=BUCKET, Key=client_key)
