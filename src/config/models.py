@@ -5,7 +5,7 @@ Defaults match deployment/config.json so local development works without env var
 """
 import os
 
-EVALUATION_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
+EVALUATION_MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-5-5")
 
 NOVA_SONIC_MODEL_ID = os.getenv("NOVA_SONIC_MODEL_ID", "amazon.nova-2-5-sonic")
 

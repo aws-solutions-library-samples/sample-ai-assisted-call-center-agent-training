@@ -41,7 +41,7 @@ BUCKET = os.environ.get('RECORDINGS_BUCKET', '')
 SCENARIOS_TABLE = os.environ.get('SCENARIOS_TABLE', '')
 CRITERIA_CONFIG_TABLE = os.environ.get('CRITERIA_CONFIG_TABLE', '')
 SESSIONS_TABLE = os.environ.get('SESSIONS_TABLE', '')
-BEDROCK_MODEL_ID = os.environ.get('BEDROCK_MODEL_ID', 'us.anthropic.claude-sonnet-4-6')
+BEDROCK_MODEL_ID = os.environ.get('BEDROCK_MODEL_ID', 'us.anthropic.claude-sonnet-5-5')
 
 
 # ============================================================================
@@ -479,6 +479,7 @@ Return ONLY the JSON object with these fields: id, name, context, key_challenges
         body=json.dumps({
             'anthropic_version': 'bedrock-2023-05-31',
             'max_tokens': 4096,
+            'thinking': {'type': 'between_tools'},
             'system': GENERATOR_SYSTEM_PROMPT,
             'messages': [
                 {'role': 'user', 'content': user_prompt},
@@ -487,7 +488,7 @@ Return ONLY the JSON object with these fields: id, name, context, key_challenges
     )
 
     response_body = json.loads(response['body'].read())
-    response_text = response_body['content'][0]['text']
+    response_text = next(b['text'] for b in response_body['content'] if b['type'] == 'text')
 
     scenario = _parse_json_response(response_text)
 

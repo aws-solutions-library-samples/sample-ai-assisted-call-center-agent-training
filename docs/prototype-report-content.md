@@ -46,7 +46,7 @@ Both modes share a common backend comprising Amazon DynamoDB for scenario and se
 | Service | Purpose |
 |---------|---------|
 | Amazon Bedrock (AgentCore Runtime + Nova Sonic) | Serverless voice agent container with bidirectional streaming |
-| Amazon Bedrock (Claude Sonnet 4.6) | AI-powered session evaluation and scoring |
+| Amazon Bedrock (Claude Sonnet 5.5) | AI-powered session evaluation and scoring |
 | AWS Lambda (7 functions) | Trainee API, Admin API, Scoring, Screen Analysis, Audio Empathy, AI Agent Session Setup, Connect Admin |
 | Amazon API Gateway v2 (HTTP API) | RESTful backend with JWT authorization |
 | Amazon Cognito | User pools (admin/trainee groups) and identity pools for temporary credentials |
@@ -208,7 +208,7 @@ The scoring pipeline runs asynchronously after a training session ends. It uses 
 - Calculates weighted empathy score (0-100) from 5 components, combined 50/50 with text-based empathy from Claude
 
 **Step 4: Claude AI Evaluation**
-- Sends transcript + analytics + screen actions to Claude (Sonnet 4.6) via Bedrock
+- Sends transcript + analytics + screen actions to Claude (Sonnet 5.5) via Bedrock
 - Uses structured JSON output schema to ensure consistent evaluation format
 - Prompt includes:
   - Full call transcript with speaker labels
@@ -377,7 +377,7 @@ Post-call processing uses Contact Lens analysis: when the call ends, Contact Len
 
 ### Evaluation Engine
 
-After each training session, an asynchronous scoring pipeline evaluates the trainee's performance. The session transcript is submitted to Claude (Sonnet 4.6) with a structured JSON output schema and evaluated against a comprehensive rubric containing 30+ criteria across 6 sections: Security, Professional Call Handling, Complete/Correct Information, Time Efficiency, Scripting & Scope, and Reducing Customer Effort. Critical criteria (such as identity verification and compliance) result in an automatic call failure if not met, while non-critical criteria contribute to a weighted percentage score. The system produces a detailed scorecard with per-criterion pass/fail results, reasoning, and an overall letter grade (A-F). The rubric can be customized for each scenario.
+After each training session, an asynchronous scoring pipeline evaluates the trainee's performance. The session transcript is submitted to Claude (Sonnet 5.5) with a structured JSON output schema and evaluated against a comprehensive rubric containing 30+ criteria across 6 sections: Security, Professional Call Handling, Complete/Correct Information, Time Efficiency, Scripting & Scope, and Reducing Customer Effort. Critical criteria (such as identity verification and compliance) result in an automatic call failure if not met, while non-critical criteria contribute to a weighted percentage score. The system produces a detailed scorecard with per-criterion pass/fail results, reasoning, and an overall letter grade (A-F). The rubric can be customized for each scenario.
 
 ### Audio Empathy Analysis
 
@@ -546,7 +546,7 @@ The following tools and configurations are required:
 - AWS CDK CLI (`npm install -g aws-cdk`)
 - Docker (for building the AgentCore container image)
 
-The deploying AWS account must have access to Amazon Bedrock models (Nova 2 Sonic v1 for voice, Claude Sonnet 4.6 for evaluation) in the target region (us-west-2). If using the Amazon Connect integration, a Connect instance must be pre-created with the appropriate contact flows configured.
+The deploying AWS account must have access to Amazon Bedrock models (Nova 2 Sonic v1 for voice, Claude Sonnet 5.5 for evaluation) in the target region (us-west-2). If using the Amazon Connect integration, a Connect instance must be pre-created with the appropriate contact flows configured.
 
 **Local Testing:** The `scripts/test_local.py` and `scripts/test_local_duo.py` scripts allow testing scenarios locally without deploying to AgentCore, using the same system prompts and tools as production. Console voice testing applies WebRTC echo cancellation and noise suppression (via Strands' `bidi-aec` extra), so speakers work without headphones; pass `--no-echo-cancellation` to turn it off. Install the script dependencies with `pip install -r scripts/requirements.txt`.
 
@@ -556,7 +556,7 @@ Deployment parameters are defined in `deployment/config.json`:
 
 - **VPC configuration:** CIDR range (10.0.0.0/16), number of availability zones (2), NAT gateway count (1)
 - **VPC endpoints:** Toggles for interface endpoints (Bedrock AgentCore, Bedrock Runtime, ECR, CloudWatch Logs, Secrets Manager) and gateway endpoints (S3, DynamoDB)
-- **Agent configuration:** Voice model ID (`amazon.nova-2-sonic-v1:0`), evaluation model ID (`us.anthropic.claude-sonnet-4-6`), Connect conversation model ID (`us.anthropic.claude-haiku-4-5-20251001-v1:0`), available voices
+- **Agent configuration:** Voice model ID (`amazon.nova-2-sonic-v1:0`), evaluation model ID (`us.anthropic.claude-sonnet-5-5`), Connect conversation model ID (`us.anthropic.claude-haiku-4-5-20251001-v1:0`), available voices
 - **Connect configuration (optional):** Connect instance ARN, contact flow ID, destination phone number
 
 ### CDK Deployment Process
@@ -610,8 +610,8 @@ This section presents an estimation of the AWS infrastructure costs to run this 
 | Service | Unit Price | Usage/Month | Estimated Monthly Cost |
 |---------|-----------|-------------|----------------------|
 | **Amazon Bedrock - Nova Sonic** | $3.00/M input, $12.00/M output | 2,000 sessions (4.71M input + 2.34M output) | ~$42 |
-| **Amazon Bedrock - Claude Sonnet 4.6** (scoring) | $3.00/M input, $15.00/M output | 2,000 evaluations (7.95M input + 6.82M output) | ~$126 |
-| **Amazon Bedrock - Claude Sonnet 4.6** (screen analysis) | $3.00/M input, $15.00/M output | 2,000 sessions (24.5M input + 1.8M output) | ~$101 |
+| **Amazon Bedrock - Claude Sonnet 5.5** (scoring) | $2.00/M input, $10.00/M output | 2,000 evaluations (7.95M input + 6.82M output) | ~$84 |
+| **Amazon Bedrock - Claude Sonnet 5.5** (screen analysis) | $2.00/M input, $10.00/M output | 2,000 sessions (24.5M input + 1.8M output) | ~$67 |
 | **Bedrock AgentCore Runtime** | $0.0895/vCPU-hr, $0.00945/GB-hr | 2,000 sessions (51.8 vCPU-hrs + 6,300 GB-hrs) | ~$64 |
 | **AWS Lambda** | $0.0000166667/GB-sec | 7 functions, ~50,000 invocations | ~$15 |
 | **Amazon DynamoDB** (on-demand) | $1.25/M write, $0.25/M read | ~10,000 writes, ~50,000 reads | ~$1 |
@@ -622,7 +622,7 @@ This section presents an estimation of the AWS infrastructure costs to run this 
 | **Amazon Cognito** | Free tier up to 50K MAU | 100 MAU | $0 |
 | **Amazon API Gateway v2** | $1.00/M requests | ~100K requests | ~$1 |
 | **Amazon ECR** | $0.10/GB | ~2 GB image | ~$1 |
-| | | **Estimated Total (Web UI)** | **~$480/month** |
+| | | **Estimated Total (Web UI)** | **~$404/month** |
 
 ### Per-Session Cost Breakdown
 
@@ -631,11 +631,11 @@ Each training session incurs the following variable costs (measured from a 95-se
 | Component | Calculation | Cost per Session |
 |-----------|------------|-----------------|
 | **Nova Sonic** (voice) | 2.4K input × $3.00/M + 1.2K output × $12.00/M | ~$0.02 |
-| **Claude Sonnet** (scoring) | 4.0K input × $3.00/M + 3.4K output × $15.00/M | ~$0.06 |
-| **Claude Sonnet** (screen analysis) | 12.2K input × $3.00/M + 0.9K output × $15.00/M | ~$0.05 |
+| **Claude Sonnet** (scoring) | 4.0K input × $2.00/M + 3.4K output × $10.00/M | ~$0.04 |
+| **Claude Sonnet** (screen analysis) | 12.2K input × $2.00/M + 0.9K output × $10.00/M | ~$0.03 |
 | **AgentCore Runtime** | 0.026 vCPU-hrs × $0.0895 + 3.15 GB-hrs × $0.00945 | ~$0.03 |
 | **Lambda, DynamoDB, S3, API GW** | Per-invocation and storage | ~$0.01 |
-| | **Variable cost per session** | **~$0.17** |
+| | **Variable cost per session** | **~$0.13** |
 
 Fixed monthly infrastructure costs (always-on regardless of session count):
 
@@ -654,11 +654,11 @@ The 2,000 sessions/month estimate above assumes steady-state usage. In practice,
 
 | Component | Cost |
 |-----------|------|
-| Variable costs (700 sessions × $0.17) | ~$119 |
+| Variable costs (700 sessions × $0.13) | ~$91 |
 | Fixed infrastructure (1 month) | ~$126 |
-| **Total for training cohort** | **~$245** |
-| **Cost per representative** (10 sessions) | **~$3.50** |
-| **Cost per session** | **~$0.35** |
+| **Total for training cohort** | **~$217** |
+| **Cost per representative** (10 sessions) | **~$3.10** |
+| **Cost per session** | **~$0.31** |
 
 If infrastructure is shut down between cohorts (e.g., removing VPC endpoints and NAT Gateway when not in use), fixed costs only apply during active training months. Connect voice pricing (~$0.09/session for voice service + telephony) would *replace* Nova Sonic + AgentCore at ~$0.05/session — at the measured token volume this is roughly cost-neutral, so the Connect path should be chosen on the basis of architectural benefits (Contact Lens, unified flows) rather than voice cost savings.
 
@@ -681,17 +681,17 @@ If infrastructure is shut down between cohorts (e.g., removing VPC endpoints and
 
 ### Key Cost Drivers
 
-1. **Bedrock Claude Sonnet** (~47% of Web UI cost): Scoring evaluation ($126) and screen analysis ($101) combined are the largest variable cost driver. Scales with evaluation count, transcript length, and number of screenshots captured per session. Optimization: consider Nova Lite for preliminary screening, cache rubric prompts, reduce screenshot frequency or batch size.
-2. **VPC Endpoints** (~18%): Fixed cost regardless of usage. Optimization: evaluate which endpoints are essential; consider using NAT Gateway for low-traffic services instead.
-3. **Bedrock AgentCore Runtime** (~13%): Container vCPU + memory hours. Scales with concurrent session count and session duration. Optimization: shorter practice sessions, session time limits.
-4. **NAT Gateway** (~7%): Fixed hourly cost plus data processing. Already minimized with VPC endpoints for high-traffic services.
-5. **Bedrock Nova Sonic** (~9%): Voice streaming tokens are now a minor cost at measured usage (~$0.02/session). Migrating to Connect voice pricing no longer yields material savings on voice alone — evaluate Connect based on architectural fit (Contact Lens, unified flows) rather than voice cost.
+1. **Bedrock Claude Sonnet** (~37% of Web UI cost): Scoring evaluation ($84) and screen analysis ($67) combined are the largest variable cost driver. Scales with evaluation count, transcript length, and number of screenshots captured per session. Optimization: consider Nova Lite for preliminary screening, cache rubric prompts, reduce screenshot frequency or batch size.
+2. **VPC Endpoints** (~22%): Fixed cost regardless of usage. Optimization: evaluate which endpoints are essential; consider using NAT Gateway for low-traffic services instead.
+3. **Bedrock AgentCore Runtime** (~16%): Container vCPU + memory hours. Scales with concurrent session count and session duration. Optimization: shorter practice sessions, session time limits.
+4. **NAT Gateway** (~8%): Fixed hourly cost plus data processing. Already minimized with VPC endpoints for high-traffic services.
+5. **Bedrock Nova Sonic** (~10%): Voice streaming tokens are now a minor cost at measured usage (~$0.02/session). Migrating to Connect voice pricing no longer yields material savings on voice alone — evaluate Connect based on architectural fit (Contact Lens, unified flows) rather than voice cost.
 
 ### Important Notes
 
 - **Token usage logging** has been added to the prototype. All Bedrock model invocations (Nova Sonic, Claude scoring, screen analysis) log input/output token counts to CloudWatch and include them in the scorecard JSON. This enables precise cost tracking from real usage data.
 - All token counts above are measured from a real training session. Actual usage will vary by scenario length, complexity, and number of screenshots captured.
-- Claude Sonnet (scoring + screen analysis) is now the largest variable cost driver at ~47% of the total. Session duration and screenshot count are the primary cost levers — scoring tokens scale with transcript length, and screen analysis scales with number of screenshots.
+- Claude Sonnet (scoring + screen analysis) is now the largest variable cost driver at ~37% of the total. Session duration and screenshot count are the primary cost levers — scoring tokens scale with transcript length, and screen analysis scales with number of screenshots.
 - Bedrock allows a maximum of 20 concurrent Nova Sonic connections per AWS account. Each active training session consumes one connection. Request a quota increase if needed.
 - S3 lifecycle policies transition recordings to Glacier after 30 days and delete after 365 days, reducing long-term storage costs.
 - Costs scale roughly linearly with the number of training sessions. At 10x volume (20,000 sessions/month), expect approximately 10x the variable costs with fixed costs (VPC endpoints, NAT Gateway) remaining constant.
@@ -731,7 +731,7 @@ The following items will need to be resolved to build a comprehensive business c
 ### Functional Outcomes
 
 - AI-powered customer simulation using Amazon Nova Sonic for realistic bidirectional voice conversations, with configurable customer personas, moods, and difficulty levels across 18+ pre-built insurance scenarios
-- Automated performance evaluation using Claude (Sonnet 4.6) with a comprehensive rubric containing 30+ criteria across 6 sections, producing detailed scorecards with letter grades, per-criterion feedback, and critical failure identification
+- Automated performance evaluation using Claude (Sonnet 5.5) with a comprehensive rubric containing 30+ criteria across 6 sections, producing detailed scorecards with letter grades, per-criterion feedback, and critical failure identification
 - Multi-character (duo) scenario support enabling realistic multi-party interactions with AI-driven character handoffs during a single training session. This is an experimental feature and was not part of the scope or even stretch goals.
 - Admin dashboard for scenario management (CRUD operations, AI-powered scenario generation from call transcripts), trainee management, and per-scenario evaluation criteria configuration
 - Session recording with stereo audio capture (representative and customer on separate channels), real-time transcription, and S3 storage with KMS encryption and lifecycle policies

@@ -100,7 +100,7 @@ These deployment instructions are optimized to best work on **Amazon Linux 2023*
 
 - **Amazon Bedrock model access** — Enable the following models in your deployment region:
   - Amazon Nova 2 Sonic (`amazon.nova-2-sonic-v1:0`)
-  - Anthropic Claude Sonnet 4 (`us.anthropic.claude-sonnet-4-6`)
+  - Anthropic Claude Sonnet 5.5 (`us.anthropic.claude-sonnet-5-5`)
   - Amazon Nova 2 Lite (`us.amazon.nova-2-lite-v1:0`)
 - **Service quotas** — Default quotas are sufficient for most deployments. If running more than 10 concurrent training sessions, request an increase for Bedrock AgentCore Runtime concurrent invocations.
 - **IAM permissions** — The deploying principal requires `AdministratorAccess` or equivalent permissions to create VPCs, Lambda functions, DynamoDB tables, S3 buckets, Cognito pools, CloudFront distributions, and Bedrock resources.

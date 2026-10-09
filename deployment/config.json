@@ -16,7 +16,7 @@
   "agent": {
     "name": "call-center-training-agent",
     "description": "AI-powered call center training agent with Nova Sonic voice capabilities",
-    "evaluationModelId": "us.anthropic.claude-sonnet-4-6",
+    "evaluationModelId": "us.anthropic.claude-sonnet-5-5",
     "voiceModelId": "amazon.nova-2-5-sonic",
     "liteModelId": "us.amazon.nova-2-lite-v1:0"
   },

@@ -18,7 +18,7 @@ from datetime import datetime
 logger = logging.getLogger()
 logger.setLevel(os.environ.get('LOG_LEVEL', 'INFO'))
 
-BEDROCK_MODEL_ID = os.environ.get('BEDROCK_MODEL_ID', 'us.anthropic.claude-sonnet-4-6')
+BEDROCK_MODEL_ID = os.environ.get('BEDROCK_MODEL_ID', 'us.anthropic.claude-sonnet-5-5')
 
 # Marker appended to the User-Agent header so AWS can attribute service API usage
 # to this solution. Set by CDK from the `Solution` CloudFormation mapping.
@@ -111,7 +111,7 @@ def analyze_screenshots_with_claude(captures: list, scenario_name: str) -> list:
     request_body = {
         'anthropic_version': 'bedrock-2023-05-31',
         'max_tokens': 2000,
-        'temperature': 0,
+        'thinking': {'type': 'between_tools'},
         'messages': [{'role': 'user', 'content': content}],
         'output_config': {
             'format': {
@@ -140,7 +140,7 @@ def analyze_screenshots_with_claude(captures: list, scenario_name: str) -> list:
         'output_tokens': usage.get('output_tokens', 0),
     }
 
-    result = json.loads(response_body['content'][0]['text'])
+    result = json.loads(next(b['text'] for b in response_body['content'] if b['type'] == 'text'))
     summaries_raw = result['screenshots']
 
     # Merge with timestamp metadata from captures

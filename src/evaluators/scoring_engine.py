@@ -128,7 +128,7 @@ class ScoringEngine:
         request_body = {
             'anthropic_version': 'bedrock-2023-05-31',
             'max_tokens': 8000,
-            'temperature': 0,
+            'thinking': {'type': 'between_tools'},
             'messages': [{'role': 'user', 'content': prompt}],
             'output_config': {
                 'format': {
@@ -146,7 +146,7 @@ class ScoringEngine:
         )
 
         response_body = json.loads(response['body'].read())
-        evaluation_data = json.loads(response_body['content'][0]['text'])
+        evaluation_data = json.loads(next(b['text'] for b in response_body['content'] if b['type'] == 'text'))
 
         # Extract and log token usage
         usage = response_body.get('usage', {})
