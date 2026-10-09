@@ -1,10 +1,8 @@
 import { useRef, useState, useCallback } from 'react';
 import { arrayBufferToBase64 } from '../utils/audioUtils';
+import { SpeechTurnTracker, type SpeechTiming } from '../utils/speechTurnTracker';
 
-export interface SpeechTiming {
-  startTime: number;  // seconds from session start
-  duration: number;   // seconds
-}
+export type { SpeechTiming };
 
 export const useAudioCapture = (onAudioData?: (base64Audio: string) => void) => {
   const [isCapturing, setIsCapturing] = useState(false);
@@ -13,9 +11,7 @@ export const useAudioCapture = (onAudioData?: (base64Audio: string) => void) => 
   const audioProcessorRef = useRef<AudioWorkletNode | null>(null);
 
   // VAD speech timing tracking
-  const sessionStartMsRef = useRef<number | null>(null);
-  const speechStartMsRef = useRef<number | null>(null);
-  const currentSpeechTimingRef = useRef<SpeechTiming | null>(null);
+  const speechTrackerRef = useRef(new SpeechTurnTracker());
 
   const startCapture = useCallback(async () => {
     try {
@@ -58,18 +54,7 @@ export const useAudioCapture = (onAudioData?: (base64Audio: string) => void) => 
         const { type } = event.data;
 
         if (type === 'vad') {
-          const { speaking } = event.data;
-          const now = Date.now();
-          if (speaking) {
-            // Speech started — record the start time
-            speechStartMsRef.current = now;
-          } else if (speechStartMsRef.current !== null && sessionStartMsRef.current !== null) {
-            // Speech ended — compute timing and store for pickup
-            const startTime = (speechStartMsRef.current - sessionStartMsRef.current) / 1000;
-            const duration = (now - speechStartMsRef.current) / 1000;
-            currentSpeechTimingRef.current = { startTime, duration };
-            speechStartMsRef.current = null;
-          }
+          speechTrackerRef.current.onVad(event.data.speaking, Date.now());
           return;
         }
 
@@ -117,33 +102,19 @@ export const useAudioCapture = (onAudioData?: (base64Audio: string) => void) => 
     }
 
     // Reset VAD timing state
-    sessionStartMsRef.current = null;
-    speechStartMsRef.current = null;
-    currentSpeechTimingRef.current = null;
+    speechTrackerRef.current.setSessionStart(null);
 
     setIsCapturing(false);
   }, []);
 
   const setSessionStart = useCallback((sessionStartMs: number) => {
-    sessionStartMsRef.current = sessionStartMs;
-    speechStartMsRef.current = null;
-    currentSpeechTimingRef.current = null;
+    speechTrackerRef.current.setSessionStart(sessionStartMs);
   }, []);
 
-  const getAndResetSpeechTiming = useCallback((): SpeechTiming | null => {
-    // If currently speaking, finalize the timing up to now
-    if (speechStartMsRef.current !== null && sessionStartMsRef.current !== null) {
-      const now = Date.now();
-      const startTime = (speechStartMsRef.current - sessionStartMsRef.current) / 1000;
-      const duration = (now - speechStartMsRef.current) / 1000;
-      currentSpeechTimingRef.current = { startTime, duration };
-      speechStartMsRef.current = null;
-    }
-
-    const timing = currentSpeechTimingRef.current;
-    currentSpeechTimingRef.current = null;
-    return timing;
-  }, []);
+  const getAndResetSpeechTiming = useCallback(
+    (): SpeechTiming | null => speechTrackerRef.current.getAndReset(Date.now()),
+    [],
+  );
 
   return {
     isCapturing,
