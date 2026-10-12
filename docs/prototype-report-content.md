@@ -28,7 +28,7 @@ The architecture supports two training modes:
 
 - **Web UI Mode:** Trainees access a React-based web application served via Amazon CloudFront, authenticated through Amazon Cognito. Voice streaming occurs directly between the browser and a Bedrock AgentCore Runtime container via WebSocket, using Amazon Nova Sonic for bidirectional audio.
 
-- **Amazon Connect Mode:** Trainees receive outbound phone calls through Amazon Connect. Amazon Connect AI Agents provide natural conversation simulation, with a Session Setup Lambda injecting scenario data before the conversation starts. AI Agents use Amazon Bedrock (Claude Haiku) for conversation orchestration. Post-call scoring is triggered automatically via Amazon EventBridge.
+- **Amazon Connect Mode:** Trainees receive outbound phone calls through Amazon Connect. Amazon Connect AI Agents provide natural conversation simulation, with a Session Setup Lambda injecting scenario data before the conversation starts. AI Agents use Amazon Bedrock (Claude Haiku) for conversation orchestration. After the call, Amazon Connect automatically evaluates the trainee against the rubric with Contact Lens generative-AI evaluations.
 
 Both modes share a common backend comprising Amazon DynamoDB for scenario and session storage, Amazon S3 (KMS-encrypted) for audio recordings, transcripts, and scorecards, and Claude (via Amazon Bedrock) for AI-powered evaluation. All Lambda functions are deployed within a VPC with private subnets and VPC endpoints for secure access to AWS services including Bedrock, S3, DynamoDB, ECR, CloudWatch Logs, and Secrets Manager.
 
@@ -56,7 +56,6 @@ Both modes share a common backend comprising Amazon DynamoDB for scenario and se
 | Amazon VPC + VPC Endpoints | Private connectivity to Bedrock, ECR, CloudWatch, Secrets Manager, S3, DynamoDB |
 | Amazon ECR | Docker image repository for AgentCore container |
 | Amazon Connect | Phone-based training with AI Agents for customer simulation |
-| Amazon EventBridge | Post-call scoring triggers |
 | AWS KMS | Encryption keys for S3 and Cognito |
 
 ### VPC Architecture
@@ -171,17 +170,10 @@ The following describes the end-to-end data flow when a trainee completes a trai
 - Nova Sonic handles STT (trainee speech → text), Claude Haiku generates responses (text → text), Nova Sonic handles TTS (text → customer speech)
 - Trainee interacts naturally via phone, with AI customer role-playing based on the scenario
 
-**4. Post-Call Processing**
-- When the call ends, Contact Lens generates an analysis JSON in S3
-- EventBridge rule triggers the Post-Call Lambda (`src/lambda/connect_postcall/index.py`)
-- Post-Call Lambda:
-  1. Looks up session by contactId (DynamoDB GSI: ContactIdIndex)
-  2. Downloads Contact Lens analysis JSON (transcript, sentiment, interruptions)
-  3. Downloads stereo WAV recording from Connect
-  4. Extracts representative-only audio (right channel to mono via ffmpeg)
-  5. Converts Contact Lens transcript to SessionRecording format
-  6. Uploads session JSON, representative audio, and stereo audio to recordings S3 bucket
-  7. Invokes Scoring Lambda asynchronously
+**4. Post-Call Evaluation (in Amazon Connect)**
+- The trainee's inbound CCP contact is tagged `training_evaluation=true` and analyzed by Contact Lens
+- When post-call analysis is available, a Contact Lens rule auto-submits an evaluation using a form generated from `rubrics/default.json` (generative AI answers each criterion)
+- Supervisors review evaluations, transcripts, and recordings in the Amazon Connect admin website
 
 ### Scoring Pipeline Detail
 
@@ -373,7 +365,7 @@ Retry logic with exponential backoff (5 attempts, 0.5s to 8s delays) handles tim
 
 The AI Prompt and AI Agent are created in the Amazon Connect console (under **AI agent designer**). This allows for easy prompt iteration and testing without redeployment. The orchestration prompt template (`amazon-connect/ai-agent-prompt-template.txt`) is provided as a reference. AI Agents use Amazon Bedrock (Claude Haiku) for conversation orchestration, with Amazon Connect handling speech-to-text and text-to-speech automatically.
 
-Post-call processing uses Contact Lens analysis: when the call ends, Contact Lens generates a transcript and analytics JSON in S3. EventBridge triggers the Post-Call Lambda, which extracts the transcript, processes the audio recording, and invokes the Scoring Lambda. The AI Agent flow shares the same DynamoDB tables, S3 buckets, and scoring pipeline as other training modes.
+Post-call scoring happens entirely in Amazon Connect: Contact Lens analyzes the trainee's contact, and a Contact Lens rule auto-submits a generative-AI evaluation using a form generated from the rubric. The AI Agent flow shares the Scenarios DynamoDB table with other training modes; transcripts, recordings, and evaluations are reviewed in the Amazon Connect admin website.
 
 ### Evaluation Engine
 
@@ -475,7 +467,7 @@ Phone integration resources including:
 - Amazon Connect AI Agent configuration (Q Connect backend)
 - AI Agent orchestration via Amazon Bedrock (Claude Haiku)
 - Session Setup Lambda (injects scenario data into AI Agent sessions)
-- Post-call scoring Lambda triggered via EventBridge
+- Rubric evaluation form + Contact Lens auto-evaluation rule
 - Connect admin Lambda API
 - CloudFront-hosted Connect admin UI
 
@@ -495,7 +487,7 @@ All tables use on-demand billing (PAY_PER_REQUEST) with point-in-time recovery e
 
 **TimestampIndex:** All sessions have `gsiPk="ALL"`, enabling a single query to retrieve all sessions sorted by timestamp — used by the admin dashboard to list trainees with latest scores.
 
-**ContactIdIndex:** Maps Amazon Connect contactId to sessionId, enabling the post-call Lambda to look up the session when EventBridge fires after a call ends.
+**ContactIdIndex:** Maps Amazon Connect contactId to sessionId (not used by the Connect stack, which keeps call results in Amazon Connect).
 
 #### S3 Buckets
 
@@ -736,7 +728,7 @@ The following items will need to be resolved to build a comprehensive business c
 - Admin dashboard for scenario management (CRUD operations, AI-powered scenario generation from call transcripts), trainee management, and per-scenario evaluation criteria configuration
 - Session recording with stereo audio capture (representative and customer on separate channels), real-time transcription, and S3 storage with KMS encryption and lifecycle policies
 - Real-time transcript display with talk-over detection — when Nova Sonic reports a barge-in, the trainee's interrupting turn and the customer turn it cut off are highlighted in amber for immediate visual feedback
-- Amazon Connect integration providing phone-based training as an alternative to the web UI, with automatic post-call scoring via EventBridge triggers
+- Amazon Connect integration providing phone-based training as an alternative to the web UI, with automatic post-call rubric scoring by Amazon Connect evaluations
 
 ### Non-Functional Outcomes
 
@@ -766,7 +758,7 @@ The following items will need to be resolved to build a comprehensive business c
 - **Cost Optimization — Connect Voice Pricing:** With the measured Nova Sonic token volume, direct Bedrock pricing (~$0.02/session) is actually cheaper than Connect's flat $0.038/min voice service (~$0.06/session at 95s). Migrating to Connect voice pricing should therefore be evaluated on architectural merits — unified Web UI/Connect architecture, Contact Lens analytics for all sessions, simpler operations — rather than voice cost savings. Connect supports in-app and web calling (not just telephony), making it viable for web UI mode. The trade-off is replacing the AgentCore/BidiAgent WebSocket pattern with Connect's in-app calling SDK and contact flow framework.
 - **Cost Optimization — General:** Monitor Bedrock model invocation costs closely as usage scales. Evaluate Nova Lite as a lower-cost alternative for scoring. Leverage S3 Intelligent-Tiering for recording storage if access patterns are unpredictable.
 - **Nova Sonic Quota:** Bedrock allows a maximum of 20 concurrent Nova Sonic connections per AWS account. Each active training session -- whether via the Web UI or Amazon Connect -- consumes one connection. Consult with your account team if you need a quota increase.
-- **Amazon Connect Evaluations:** Although we have implemented the Scoring Lambda function to be auto triggered when an Amazon Connect call ends, we recommend that you use Amazon Connect evaluations for rubric scoring. Your account team can help you with enablement. The current Connect implementation fails to associate the outbound call with the inbound call which leads to failure to identify which trainer took the call. One possible solution is to use a pool of outbound phone numbers to allow for this association.
+- **Amazon Connect Evaluations:** Connect mode scores the rubric with Amazon Connect automated evaluations of the trainee's inbound CCP contact, and results are reviewed in Amazon Connect. The evaluated contact is not linked to the outbound AI-customer contact, so the evaluation does not record which scenario was used. A pool of outbound phone numbers (one caller ID per scenario or in-flight session) would allow this association.
 - **Strands BidiAgent:** Strands BidiAgent is experimental. We recommend upgrading to the latest version of Strands as soon as v1 is released. Moreover, the multi-character mode is implemented using a hand off tool. Another option would be using a multi agent architecture such as Swarm. Although Strands does not currently support use of BidiAgents in multi agent architecture, we recommend testing this approach once it becomes available.
 
 ### Alternative Voice Models
@@ -961,7 +953,6 @@ Administrators can enable/disable specific criteria per scenario via the Criteri
 | **Screen Analysis Lambda** | `src/lambda/screen_analysis/index.py` | Screen capture analysis |
 | **Audio Empathy Lambda** | `src/lambda/audio_empathy/index.py` | Empathy scoring Lambda wrapper |
 | **Connect Lambda** | `src/lambda/connect_lambda/index.py` | Outbound call initiation |
-| **Post-Call Lambda** | `src/lambda/connect_postcall/index.py` | Contact Lens processing |
 | **AI Agent Session Setup** | `src/lambda/ai_agent_session_setup/index.py` | Injects scenario data into AI Agent sessions |
 | **WebSocket Presigned** | `frontend/app/src/services/websocket-presigned.ts` | Client-side presigned URL generation |
 | **Scenario Selection** | `frontend/app/src/components/ScenarioSelection.tsx` | Scenario picker UI |
@@ -970,7 +961,7 @@ Administrators can enable/disable specific criteria per scenario via the Criteri
 | **Core CDK Stack** | `deployment/lib/core-infra-stack.ts` | VPC, S3, DynamoDB, KMS |
 | **Agent Runtime CDK Stack** | `deployment/lib/agent-runtime-stack.ts` | AgentCore Runtime, ECR image |
 | **Web CDK Stack** | `deployment/lib/webui-stack.ts` | Cognito, CloudFront, API Gateway, Lambdas |
-| **Connect CDK Stack** | `deployment/lib/connect-stack.ts` | AI Agents, Connect integration, EventBridge |
+| **Connect CDK Stack** | `deployment/lib/connect-stack.ts` | AI Agents, Connect integration, evaluation form + rule |
 | **Deploy Config** | `deployment/config.json` | VPC, model IDs, Connect ARNs |
 | **Deploy Script** | `deployment/deploy.sh` | Multi-stack deployment orchestration |
 | **Default Rubric** | `rubrics/default.json` | Medical insurance evaluation rubric |
@@ -1015,7 +1006,7 @@ IAM policies require tightening to enforce least-privilege principles. Several r
 
 #### 3.2 Container Security
 
-All Dockerfiles (audio_empathy, connect_lambda, connect_postcall) currently run as root. For production:
+All Dockerfiles (audio_empathy, connect_lambda) currently run as root. For production:
 
 - Add non-root user directives to all container images
 - Add HEALTHCHECK instructions to all Dockerfiles

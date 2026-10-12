@@ -9,6 +9,9 @@
  *   ${AIAgentVersionArn}      — published AI Agent version ARN
  *   ${LambdaArn}              — Session Setup Lambda ARN
  *   ${LexBotAliasArn}         — Lex V2 bot alias ARN
+ *   ${QueueArn}               — target queue ARN (inbound training flow)
+ *
+ * Every placeholder used by the JSON file must have a matching substitution.
  */
 
 import * as cdk from 'aws-cdk-lib';
@@ -24,13 +27,8 @@ export interface ConnectContactFlowProps {
   type?: string;
   /** Absolute path to the tokenized JSON file */
   flowJsonPath: string;
-  /** ARN substitutions */
-  substitutions: {
-    WisdomAssistantArn: string;
-    AIAgentVersionArn: string;
-    LambdaArn: string;
-    LexBotAliasArn?: string;
-  };
+  /** ARN substitutions, keyed by placeholder name */
+  substitutions: Record<string, string>;
 }
 
 export class ConnectContactFlowConstruct extends Construct {
@@ -52,12 +50,7 @@ export class ConnectContactFlowConstruct extends Construct {
     }
     raw = JSON.stringify(parsed);
 
-    const content = cdk.Fn.sub(raw, {
-      WisdomAssistantArn: props.substitutions.WisdomAssistantArn,
-      AIAgentVersionArn: props.substitutions.AIAgentVersionArn,
-      LambdaArn: props.substitutions.LambdaArn,
-      LexBotAliasArn: props.substitutions.LexBotAliasArn ?? '',
-    });
+    const content = cdk.Fn.sub(raw, props.substitutions);
 
     this.contactFlow = new connect.CfnContactFlow(this, 'Flow', {
       instanceArn: props.instanceArn,

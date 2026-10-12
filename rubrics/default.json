@@ -1,6 +1,6 @@
 {
   "name": "Healthcare Support Call Quality",
-  "version": "4.0",
+  "version": "1.0",
   "sections": {
     "1": {
       "name": "Security & Authentication",

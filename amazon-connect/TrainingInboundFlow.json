@@ -1,0 +1,97 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "c1a0e1d2-0001-4a6b-9c1e-6f1b2a3c4d01",
+  "Metadata": {
+    "entryPointPosition": { "x": 40, "y": 40 },
+    "ActionMetadata": {
+      "c1a0e1d2-0001-4a6b-9c1e-6f1b2a3c4d01": { "position": { "x": 160, "y": 40 } },
+      "c1a0e1d2-0002-4a6b-9c1e-6f1b2a3c4d02": { "position": { "x": 400, "y": 40 } },
+      "c1a0e1d2-0003-4a6b-9c1e-6f1b2a3c4d03": { "position": { "x": 640, "y": 40 } },
+      "c1a0e1d2-0004-4a6b-9c1e-6f1b2a3c4d04": { "position": { "x": 880, "y": 40 } },
+      "c1a0e1d2-0005-4a6b-9c1e-6f1b2a3c4d05": { "position": { "x": 1120, "y": 240 } },
+      "c1a0e1d2-0006-4a6b-9c1e-6f1b2a3c4d06": { "position": { "x": 280, "y": 200 } }
+    },
+    "Annotations": [],
+    "name": "CallCenterTrainingInbound",
+    "description": "Routes the AI customer's call to the trainee in CCP with recording and Contact Lens enabled, tagged training_evaluation=true so the evaluation rule scores it",
+    "type": "contactFlow",
+    "status": "published",
+    "hash": {}
+  },
+  "Actions": [
+    {
+      "Parameters": { "FlowLoggingBehavior": "Enabled" },
+      "Identifier": "c1a0e1d2-0001-4a6b-9c1e-6f1b2a3c4d01",
+      "Type": "UpdateFlowLoggingBehavior",
+      "Transitions": { "NextAction": "c1a0e1d2-0006-4a6b-9c1e-6f1b2a3c4d06" }
+    },
+    {
+      "Parameters": {
+        "Attributes": { "training_evaluation": "true" },
+        "TargetContact": "Current"
+      },
+      "Identifier": "c1a0e1d2-0006-4a6b-9c1e-6f1b2a3c4d06",
+      "Type": "UpdateContactAttributes",
+      "Transitions": {
+        "NextAction": "c1a0e1d2-0002-4a6b-9c1e-6f1b2a3c4d02",
+        "Errors": [
+          { "NextAction": "c1a0e1d2-0002-4a6b-9c1e-6f1b2a3c4d02", "ErrorType": "NoMatchingError" }
+        ]
+      }
+    },
+    {
+      "Parameters": {
+        "VoiceBehavior": {
+          "VoiceRecordingBehavior": {
+            "RecordedParticipants": ["Agent", "Customer"]
+          },
+          "VoiceAnalyticsBehavior": {
+            "Enabled": "True",
+            "AnalyticsLanguage": "en-US",
+            "AnalyticsModes": ["PostContact"],
+            "ConversationalAnalyticsRedactionConfiguration": { "Enabled": "False" },
+            "SentimentConfiguration": { "Enabled": "True" }
+          }
+        }
+      },
+      "Identifier": "c1a0e1d2-0002-4a6b-9c1e-6f1b2a3c4d02",
+      "Type": "UpdateContactRecordingAndAnalyticsBehavior",
+      "Transitions": {
+        "NextAction": "c1a0e1d2-0003-4a6b-9c1e-6f1b2a3c4d03",
+        "Errors": [
+          { "NextAction": "c1a0e1d2-0003-4a6b-9c1e-6f1b2a3c4d03", "ErrorType": "NoMatchingError" },
+          { "NextAction": "c1a0e1d2-0003-4a6b-9c1e-6f1b2a3c4d03", "ErrorType": "ChannelMismatch" }
+        ]
+      }
+    },
+    {
+      "Parameters": { "QueueId": "${QueueArn}" },
+      "Identifier": "c1a0e1d2-0003-4a6b-9c1e-6f1b2a3c4d03",
+      "Type": "UpdateContactTargetQueue",
+      "Transitions": {
+        "NextAction": "c1a0e1d2-0004-4a6b-9c1e-6f1b2a3c4d04",
+        "Errors": [
+          { "NextAction": "c1a0e1d2-0005-4a6b-9c1e-6f1b2a3c4d05", "ErrorType": "NoMatchingError" }
+        ]
+      }
+    },
+    {
+      "Parameters": {},
+      "Identifier": "c1a0e1d2-0004-4a6b-9c1e-6f1b2a3c4d04",
+      "Type": "TransferContactToQueue",
+      "Transitions": {
+        "NextAction": "c1a0e1d2-0005-4a6b-9c1e-6f1b2a3c4d05",
+        "Errors": [
+          { "NextAction": "c1a0e1d2-0005-4a6b-9c1e-6f1b2a3c4d05", "ErrorType": "QueueAtCapacity" },
+          { "NextAction": "c1a0e1d2-0005-4a6b-9c1e-6f1b2a3c4d05", "ErrorType": "NoMatchingError" }
+        ]
+      }
+    },
+    {
+      "Parameters": {},
+      "Identifier": "c1a0e1d2-0005-4a6b-9c1e-6f1b2a3c4d05",
+      "Type": "DisconnectParticipant",
+      "Transitions": {}
+    }
+  ]
+}

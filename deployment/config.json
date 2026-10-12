@@ -31,7 +31,8 @@
       "aiAgent": true,
       "contactFlows": true,
       "phoneNumber": true,
-      "agentUser": true
+      "agentUser": true,
+      "evaluations": true
     }
   }
 }

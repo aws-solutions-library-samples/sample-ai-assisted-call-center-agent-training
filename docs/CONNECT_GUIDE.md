@@ -36,7 +36,8 @@ Deploying `CallCenterTraining-Connect` creates all of the following:
 | LAMBDA_FUNCTION integration for Session Setup | `AWS::Connect::IntegrationAssociation` |
 | Voice + Chat contact flows (ARN placeholders substituted at deploy time) | `AWS::Connect::ContactFlow` |
 | Toll-free US phone number | `AWS::Connect::PhoneNumber` |
-| Session Setup Lambda, Admin API Lambda, Post-Call Lambda | `AWS::Lambda::Function` (VPC) |
+| Session Setup Lambda, Admin API Lambda | `AWS::Lambda::Function` (VPC) |
+| Rubric evaluation form + auto-submit Contact Lens rule | `AWS::Connect::EvaluationForm`, `AWS::Connect::Rule` |
 | Admin UI (CloudFront + S3 + Cognito user pool) | `AWS::CloudFront::Distribution` etc. |
 
 The contact flow JSON in [amazon-connect/AIAgentFlow.json](../amazon-connect/AIAgentFlow.json) and [amazon-connect/AIAgentChatFlow.json](../amazon-connect/AIAgentChatFlow.json) uses `${WisdomAssistantArn}`, `${AIAgentVersionArn}`, `${LambdaArn}`, `${LexBotAliasArn}` placeholders that CloudFormation resolves via `Fn::Sub` at deploy time.
@@ -105,12 +106,12 @@ Example config:
 - Lex V2 bot + Live alias + LEX_BOT integration + resource policy
 - Voice + chat contact flows (named `CallCenterTrainingVoice` / `CallCenterTrainingChat`)
 - Session Setup Lambda + LAMBDA_FUNCTION integration
-- Post-call processing pipeline (EventBridge → Lambda → scoring)
+- Rubric evaluation form + Contact Lens rule that auto-submits it on trainee contacts
 - Admin UI (CloudFront + Cognito) + Admin API Gateway
 
 **What stays yours (never touched):**
 - The Connect instance itself — users, queues, routing profiles, security profiles, phone numbers
-- Your recordings bucket — only *read* by the post-call Lambda, never written or modified
+- Your recordings bucket — never read or modified
 - Any existing contact flows (new flows are added alongside, never overwritten)
 
 **Caveats:**
@@ -121,8 +122,8 @@ Example config:
 >
 > If you use Q Connect or Lex on this instance for anything else (e.g. another AI agent, a different workflow), do **not** enable `aiAgent` / `lexBot` features against that instance — deploy to a separate instance instead.
 
-- **Recordings bucket access.** The post-call Lambda needs `s3:GetObject` on your bucket. CDK grants this on its own IAM role, but if your bucket has a restrictive bucket policy (deny-by-default), you may need to allow the Lambda's role ARN explicitly.
 - **Phone number routing.** Set `features.phoneNumber: false` and provide `destinationPhoneNumber` — CDK will NOT reassociate your existing number's inbound contact flow. If calls to `destinationPhoneNumber` should route through a specific flow, configure that manually in the Connect console.
+- **Connect evaluations.** With `features.phoneNumber: false`, the inbound flow on `destinationPhoneNumber` must set the contact attribute `training_evaluation=true` and enable call recording + Contact Lens post-contact analytics, or the trainee's contact won't be evaluated. Contact Lens performance evaluations (with generative AI) must be available on the instance.
 - **Representative users.** Set `features.agentUser: false` — your instance presumably already has CCP users. The trainee login you pass to the Admin UI must match an existing user on your instance.
 - **First-use Lex reconciliation.** After the first CDK deploy against your existing instance, you'll likely need to perform the "Reconcile Lex Bot Management" step (see Step 3 below) even if your instance previously had Lex bots configured. CDK adds a new LEX_BOT integration that Connect needs to reconcile once before it'll accept calls.
 
@@ -135,6 +136,7 @@ Example config:
 | `contactFlows` | Voice + chat contact flows (requires `lexBot` + `aiAgent`) |
 | `phoneNumber` | Toll-free US number + inbound flow association |
 | `agentUser` | CCP trainee (representative) user + Secrets Manager password |
+| `evaluations` | Rubric scoring in Amazon Connect: evaluation form generated from `rubrics/default.json` + Contact Lens rule that auto-submits it, plus (with `phoneNumber`) the `CallCenterTrainingInbound` flow that tags, records, and analyzes the trainee's CCP contact. Set `false` to skip scoring |
 
 ---
 

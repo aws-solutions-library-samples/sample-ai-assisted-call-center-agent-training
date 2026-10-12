@@ -354,8 +354,8 @@ After ending a session, the scoring panel displays:
 2. Select a training scenario and target trainee.
 3. Click **Start Call** — Amazon Connect places an outbound call to the trainee.
 4. The trainee answers and converses with the AI customer.
-5. Post-call scoring runs automatically after the call ends.
-6. Review results in the Admin UI dashboard.
+5. After the call ends, Amazon Connect automatically evaluates the trainee's contact against the rubric.
+6. Review evaluations in the Amazon Connect admin website (**Analytics and optimization**).
 
 ## Next Steps
 

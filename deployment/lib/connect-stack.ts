@@ -6,10 +6,12 @@
  *   - Amazon Connect instance + KMS recordings bucket + storage configs
  *   - Wisdom AI Agent Assistant + AI Prompt + AI Agent (orchestration)
  *   - Lex V2 bot + LEX_BOT integration (Nova Sonic speech-to-speech still manual)
- *   - Toll-free phone number (TOLL_FREE, US)
+ *   - Toll-free phone number (TOLL_FREE, US) + inbound flow routing to the trainee's CCP
+ *   - Connect evaluation form generated from the rubric + Contact Lens rule that
+ *     auto-submits it when the trainee's call is analyzed (results live in Connect)
  *   - Contact flows (voice + chat) with ARNs substituted at deploy time
  *   - Lambda integration for Session Setup
- *   - Admin API Lambda, API Gateway, Admin UI, post-call pipeline (unchanged)
+ *   - Admin API Lambda, API Gateway, Admin UI (start training calls only)
  *
  * Depends on: CoreInfraStack (VPC, DynamoDB, recordings bucket, KMS key).
  * Does NOT depend on AgentRuntimeStack — Connect does not invoke the AgentCore runtime.
@@ -20,6 +22,8 @@ import * as path from 'path';
 import { Construct } from 'constructs';
 import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as iam from 'aws-cdk-lib/aws-iam';
+import * as cr from 'aws-cdk-lib/custom-resources';
 import { HttpUserPoolAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { NagSuppressions } from 'cdk-nag';
@@ -27,9 +31,6 @@ import { NagSuppressions } from 'cdk-nag';
 import { CoreInfraStack } from './core-infra-stack';
 import { ConnectAudioBridgeConstruct } from './constructs/connect-audio-bridge';
 import { ConnectAdminUIConstruct } from './constructs/connect-admin-ui';
-import { ScoringLambdaConstruct } from './constructs/scoring-lambda';
-import { AudioEmpathyLambdaConstruct } from './constructs/audio-empathy-lambda';
-import { ConnectPostCallLambdaConstruct } from './constructs/connect-postcall-lambda';
 import { AIAgentSessionSetupLambdaConstruct } from './constructs/ai-agent-session-setup-lambda';
 import { ConnectInstanceConstruct } from './constructs/connect-instance';
 import { ConnectAIAgentConstruct } from './constructs/connect-ai-agent';
@@ -38,6 +39,7 @@ import { ConnectContactFlowConstruct } from './constructs/connect-contact-flow';
 import { ConnectPhoneNumberConstruct } from './constructs/connect-phone-number';
 import { ConnectLambdaIntegrationConstruct } from './constructs/connect-lambda-integration';
 import { ConnectAgentUserConstruct } from './constructs/connect-agent-user';
+import { ConnectEvaluationFormConstruct } from './constructs/connect-evaluation-form';
 import { createLogsEncryptionKey } from './utils/logs-encryption-key';
 import { EncryptLogsAspect } from './utils/encrypt-logs-aspect';
 
@@ -69,10 +71,14 @@ export class ConnectStack extends cdk.Stack {
     const enableContactFlows: boolean = features.contactFlows ?? true;
     const enablePhoneNumber: boolean = features.phoneNumber ?? manageInstance;
     const enableAgentUser: boolean = features.agentUser ?? manageInstance;
+    // Score the rubric with Connect evaluations of the trainee's inbound CCP
+    // contact instead of Claude. Without a managed phone number, the inbound
+    // flow on your number must enable recording + Contact Lens itself.
+    const enableEvaluations: boolean = features.evaluations ?? true;
 
     console.log('Connect stack feature flags:', {
       manageInstance, enableLexBot, enableAIAgent, enableContactFlows,
-      enablePhoneNumber, enableAgentUser,
+      enablePhoneNumber, enableAgentUser, enableEvaluations,
     });
 
     // ========================================
@@ -122,13 +128,9 @@ export class ConnectStack extends cdk.Stack {
       connectInstanceArn: connectInstance.instanceArn,
       contactFlowId: '',  // filled below once contact flow exists (via env update)
       destinationPhoneNumber: '',
-      recordingsBucket: agentCoreStack.storage.recordingsBucket,
-      encryptionKey: agentCoreStack.storage.encryptionKey,
       vpc: agentCoreStack.vpc,
       scenariosTableName: agentCoreStack.dynamoTables.scenariosTable.tableName,
       scenariosTableArn: agentCoreStack.dynamoTables.scenariosTable.tableArn,
-      sessionsTableName: agentCoreStack.dynamoTables.sessionsTable.tableName,
-      sessionsTableArn: agentCoreStack.dynamoTables.sessionsTable.tableArn,
       dynamoEncryptionKey: agentCoreStack.dynamoTables.encryptionKey,
     });
 
@@ -197,11 +199,20 @@ export class ConnectStack extends cdk.Stack {
     // ========================================
     let destinationPhoneNumber = '';
     if (enablePhoneNumber && manageInstance) {
+      // With evaluations, route the call to CCP through our inbound flow so the
+      // trainee's contact is recorded and analyzed by Contact Lens.
+      const inboundFlow = enableEvaluations
+        ? this.createTrainingInboundFlow(connectInstance.instanceArn, connectInstance.instanceId)
+        : undefined;
       const phone = new ConnectPhoneNumberConstruct(this, 'PhoneNumber', {
         instanceArn: connectInstance.instanceArn,
         instanceId: connectInstance.instanceId,
         useDefaultSampleInboundFlow: true,
+        inboundFlowName: inboundFlow?.contactFlow.name,
       });
+      if (inboundFlow) {
+        phone.node.addDependency(inboundFlow);
+      }
       destinationPhoneNumber = phone.phoneNumber;
     } else if (!manageInstance) {
       destinationPhoneNumber = config.connect?.destinationPhoneNumber ?? '';
@@ -235,47 +246,13 @@ export class ConnectStack extends cdk.Stack {
     });
 
     // ========================================
-    // Scoring + Audio Empathy Lambdas
+    // Rubric scoring: Connect evaluation form + auto-submit rule
     // ========================================
-    const connectScoring = new ScoringLambdaConstruct(this, 'ConnectScoring', {
-      recordingsBucket: agentCoreStack.storage.recordingsBucket,
-      scoringBucket: agentCoreStack.storage.recordingsBucket,
-      encryptionKey: agentCoreStack.storage.encryptionKey,
-      vpc: agentCoreStack.vpc,
-      criteriaConfigTableName: agentCoreStack.dynamoTables.criteriaConfigTable.tableName,
-      criteriaConfigTableArn: agentCoreStack.dynamoTables.criteriaConfigTable.tableArn,
-      sessionsTableName: agentCoreStack.dynamoTables.sessionsTable.tableName,
-      sessionsTableArn: agentCoreStack.dynamoTables.sessionsTable.tableArn,
-      dynamoEncryptionKey: agentCoreStack.dynamoTables.encryptionKey,
-    });
-
-    const connectEmpathy = new AudioEmpathyLambdaConstruct(this, 'ConnectEmpathy', {
-      recordingsBucket: agentCoreStack.storage.recordingsBucket,
-      encryptionKey: agentCoreStack.storage.encryptionKey,
-      vpc: agentCoreStack.vpc,
-    });
-
-    connectScoring.function.addEnvironment(
-      'AUDIO_EMPATHY_FUNCTION_NAME',
-      connectEmpathy.function.functionName,
-    );
-    connectEmpathy.function.grantInvoke(connectScoring.function);
-
-    // ========================================
-    // Post-Call Processing Lambda
-    // ========================================
-    new ConnectPostCallLambdaConstruct(this, 'PostCall', {
-      vpc: agentCoreStack.vpc,
-      recordingsBucket: agentCoreStack.storage.recordingsBucket,
-      encryptionKey: agentCoreStack.storage.encryptionKey,
-      sessionsTableName: agentCoreStack.dynamoTables.sessionsTable.tableName,
-      sessionsTableArn: agentCoreStack.dynamoTables.sessionsTable.tableArn,
-      scoringLambda: connectScoring.function,
-      connectInstanceArn: connectInstance.instanceArn,
-      connectRecordingsBucket: connectInstance.recordingsBucketName,
-      connectRecordingsKey: connectInstance.encryptionKey,
-      dynamoEncryptionKey: agentCoreStack.dynamoTables.encryptionKey,
-    });
+    if (enableEvaluations) {
+      new ConnectEvaluationFormConstruct(this, 'EvaluationForm', {
+        connectInstanceArn: connectInstance.instanceArn,
+      });
+    }
 
     // ========================================
     // HTTP API Gateway (JWT auth for Connect admin API)
@@ -327,9 +304,6 @@ export class ConnectStack extends cdk.Stack {
 
     connectApi.addRoutes({ path: '/scenarios', methods: [apigwv2.HttpMethod.GET], integration: connectIntegration });
     connectApi.addRoutes({ path: '/agents', methods: [apigwv2.HttpMethod.GET], integration: connectIntegration });
-    connectApi.addRoutes({ path: '/calls', methods: [apigwv2.HttpMethod.GET], integration: connectIntegration });
-    connectApi.addRoutes({ path: '/calls/{sessionId}', methods: [apigwv2.HttpMethod.GET], integration: connectIntegration });
-    connectApi.addRoutes({ path: '/calls/{sessionId}/audio', methods: [apigwv2.HttpMethod.GET], integration: connectIntegration });
     connectApi.addRoutes({ path: '/start-call', methods: [apigwv2.HttpMethod.POST], integration: connectIntegration });
 
     // ========================================
@@ -386,17 +360,6 @@ export class ConnectStack extends cdk.Stack {
       ],
     );
 
-    // Post-call Lambda reads from the Connect recordings bucket we create here.
-    // The construct scopes this to a specific bucket, but when we pass a managed
-    // bucket the resource name is a CFN ref — suppress the generated /* rule.
-    NagSuppressions.addStackSuppressions(this, [
-      {
-        id: 'AwsSolutions-IAM5',
-        reason: 'Connect recordings bucket object access requires /* suffix. Resource scoped to the specific bucket.',
-        appliesTo: [{ regex: '/Resource::arn:aws:s3:::<Instance.*RecordingsBucket.*>\\/\\*$/g' } as any],
-      },
-    ]);
-
     // ========================================
     // CloudWatch Log Group encryption
     // ========================================
@@ -433,6 +396,50 @@ export class ConnectStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ConnectAdminApiUrl', {
       value: connectApi.apiEndpoint,
       description: 'Connect Admin API Gateway endpoint URL',
+    });
+  }
+
+  /**
+   * Inbound flow for the toll-free number: enables recording + Contact Lens on
+   * the trainee's CCP contact, then routes it to the instance's standard queue
+   * (BasicQueue on a CDK-managed instance).
+   */
+  private createTrainingInboundFlow(instanceArn: string, instanceId: string): ConnectContactFlowConstruct {
+    const queueLookup = new cr.AwsCustomResource(this, 'BasicQueueLookup', {
+      onUpdate: {
+        service: 'Connect',
+        action: 'listQueues',
+        parameters: { InstanceId: instanceId, QueueTypes: ['STANDARD'] },
+        physicalResourceId: cr.PhysicalResourceId.of(`${instanceId}-standard-queue`),
+        outputPaths: ['QueueSummaryList.0.Arn'],
+      },
+      policy: cr.AwsCustomResourcePolicy.fromStatements([
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: ['connect:ListQueues'],
+          resources: [instanceArn, `${instanceArn}/queue/*`],
+        }),
+      ]),
+    });
+    NagSuppressions.addResourceSuppressions(
+      queueLookup,
+      [{
+        id: 'AwsSolutions-IAM5',
+        reason: 'ListQueues authorizes on queue resources whose IDs are only known at runtime. Scoped to the specific Connect instance.',
+        appliesTo: [{ regex: '/Resource::.*\\/queue\\/\\*$/g' } as any],
+      }],
+      true,
+    );
+
+    return new ConnectContactFlowConstruct(this, 'InboundFlow', {
+      instanceArn,
+      name: 'CallCenterTrainingInbound',
+      description: 'Routes training calls to the trainee CCP with recording and Contact Lens enabled',
+      type: 'CONTACT_FLOW',
+      flowJsonPath: path.join(__dirname, '../../amazon-connect/TrainingInboundFlow.json'),
+      substitutions: {
+        QueueArn: queueLookup.getResponseField('QueueSummaryList.0.Arn'),
+      },
     });
   }
 }
