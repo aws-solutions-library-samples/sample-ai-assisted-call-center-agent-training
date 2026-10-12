@@ -82,7 +82,7 @@ export interface HistoryItem {
 }
 
 export type SessionStatus = 'ready' | 'active' | 'ended' | 'scoring';
-export type ViewType = 'scenario' | 'session' | 'scoring' | 'history'
+export type ViewType = 'scenario' | 'session' | 'scoring' | 'history' | 'daily-summary'
   | 'admin-dashboard' | 'admin-trainee-sessions' | 'admin-session-detail'
   | 'admin-scenarios' | 'admin-criteria-config';
 export type UserRole = 'admin' | 'trainee';
@@ -209,4 +209,43 @@ export interface DynamoScenario {
   original_call_logs?: string;
   caller_gender?: string;
   characters?: DynamoScenarioCharacter[];
+}
+
+// Daily performance summary (GET /me/summary)
+export interface SummaryCriterion {
+  criterionId: string;
+  sectionId: string;
+  sectionName?: string;
+  description: string;
+  criticality: string;
+  pct: number;
+  priorPct: number | null;
+  delta: number | null;
+  passedCount: number;
+  callCount: number;
+}
+
+export interface SummaryOpportunity extends SummaryCriterion {
+  topPerformers: { avgPct: number; passRate: number } | null;
+  practiceScenario: { id: string; name: string } | null;
+}
+
+export interface SummarySection {
+  sectionId: string;
+  name: string;
+  pct: number;
+  priorPct: number | null;
+  delta: number | null;
+  criteria: SummaryCriterion[];
+}
+
+export interface DailySummary {
+  window: { start: string; end: string; trendDays: number };
+  callCount: number;
+  detailedCallCount: number;
+  score: { average: number | null; priorAverage: number | null; delta: number | null };
+  cohort: { average: number | null; top10: number | null; traineeCount: number } | null;
+  sections: SummarySection[];
+  strengths: SummaryCriterion[];
+  opportunities: SummaryOpportunity[];
 }

@@ -116,6 +116,38 @@ def save_scorecard_to_s3(bucket_name: str, session_id: str, scorecard_data: dict
     return f"s3://{bucket_name}/{scorecard_key}"
 
 
+def _pct(score, max_score):
+    from decimal import Decimal
+    pct = (float(score) / float(max_score) * 100) if max_score else 0.0
+    return Decimal(str(round(pct, 1)))
+
+
+def _compact_scores(scorecard_summary: dict) -> tuple:
+    """Per-section and per-criterion percentages for the trainee daily summary.
+
+    The full scorecard stays in S3; these compact maps let the summary
+    aggregate across many sessions with a single DynamoDB query.
+    """
+    section_scores = {
+        s['section_id']: {
+            'name': s.get('section_name', ''),
+            'pct': _pct(s.get('section_score', 0), s.get('max_score', 0)),
+        }
+        for s in scorecard_summary.get('sections', [])
+    }
+    criteria_scores = {
+        cid: {
+            'sectionId': c.get('section_id', ''),
+            'description': c.get('description', ''),
+            'criticality': c.get('criticality', ''),
+            'passed': bool(c.get('passed')),
+            'pct': _pct(c.get('score', 0), c.get('max_points', 0)),
+        }
+        for cid, c in (scorecard_summary.get('criteria') or {}).items()
+    }
+    return section_scores, criteria_scores
+
+
 def _update_session_score(user_id: str, session_id: str, scorecard_summary: dict, session_recording=None):
     """Update the DynamoDB session record with scoring results.
 
@@ -195,6 +227,14 @@ def _update_session_score(user_id: str, session_id: str, scorecard_summary: dict
         if difficulty:
             expr_values[':difficulty'] = difficulty
             update_parts.append('difficulty = :difficulty')
+
+        section_scores, criteria_scores = _compact_scores(scorecard_summary)
+        if section_scores:
+            expr_values[':sectionScores'] = section_scores
+            update_parts.append('sectionScores = :sectionScores')
+        if criteria_scores:
+            expr_values[':criteriaScores'] = criteria_scores
+            update_parts.append('criteriaScores = :criteriaScores')
 
         # Write token usage if available
         token_usage = scorecard_summary.get('token_usage')

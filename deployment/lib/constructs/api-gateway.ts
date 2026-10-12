@@ -113,6 +113,7 @@ export class ApiGatewayConstruct extends Construct {
     this.httpApi.addRoutes({ path: '/scenarios', methods: [apigwv2.HttpMethod.GET], integration: traineeIntegration });
     this.httpApi.addRoutes({ path: '/scenarios/{scenarioId}', methods: [apigwv2.HttpMethod.GET], integration: traineeIntegration });
     this.httpApi.addRoutes({ path: '/sessions', methods: [apigwv2.HttpMethod.POST], integration: traineeIntegration });
+    this.httpApi.addRoutes({ path: '/me/summary', methods: [apigwv2.HttpMethod.GET], integration: traineeIntegration });
 
     // ========================================
     // Scoring routes (scoring Lambda) — async pattern

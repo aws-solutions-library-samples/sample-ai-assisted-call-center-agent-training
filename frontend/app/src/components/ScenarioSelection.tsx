@@ -23,9 +23,11 @@ interface ScenarioSelectionProps {
     languageMode: string,
     characterVoices?: Record<string, string>,
   ) => void;
+  /** Preselect this scenario once scenarios load (e.g. "Practice now" from the daily summary) */
+  initialScenarioId?: string;
 }
 
-export const ScenarioSelection = ({ onScenarioSelect }: ScenarioSelectionProps) => {
+export const ScenarioSelection = ({ onScenarioSelect, initialScenarioId }: ScenarioSelectionProps) => {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,12 +66,37 @@ export const ScenarioSelection = ({ onScenarioSelect }: ScenarioSelectionProps) 
     loadScenarios();
   }, []);
 
+  // Auto-select voice(s) to match the scenario's caller(s)
+  const applyScenarioDefaults = (scenario: Scenario | undefined) => {
+    if (scenario?.characters && scenario.characters.length > 1) {
+      // Duo scenario — auto-select per-character voices
+      const voices: Record<string, { label?: string; value?: string }> = {};
+      for (const char of scenario.characters) {
+        const bestVoice = autoSelectVoice('en', char.gender);
+        voices[char.id] = { label: bestVoice.label, value: bestVoice.id };
+      }
+      setCharacterVoices(voices);
+      setLanguageMode('english');
+    } else if (scenario) {
+      // Single scenario — auto-select single voice
+      const bestVoice = autoSelectVoice('en', scenario.caller_gender);
+      setSelectedVoice({ label: bestVoice.label, value: bestVoice.id });
+      setCharacterVoices({});
+      setLanguageMode('english');
+    }
+  };
+
   const loadScenarios = async () => {
     try {
       setLoading(true);
       const data = await getScenarios();
       setScenarios(data);
       setError(null);
+      const initial = initialScenarioId ? data.find(s => s.id === initialScenarioId) : undefined;
+      if (initial) {
+        setSelectedScenario({ label: initial.name, value: initial.id });
+        applyScenarioDefaults(initial);
+      }
     } catch (err) {
       console.error('Error loading scenarios:', err);
       setError('Failed to load scenarios.');
@@ -149,23 +176,7 @@ export const ScenarioSelection = ({ onScenarioSelect }: ScenarioSelectionProps) 
                 selectedOption={selectedScenario}
                 onChange={({ detail }) => {
                   setSelectedScenario(detail.selectedOption);
-                  const scenario = scenarios.find(s => s.id === detail.selectedOption.value);
-                  if (scenario?.characters && scenario.characters.length > 1) {
-                    // Duo scenario — auto-select per-character voices
-                    const voices: Record<string, { label?: string; value?: string }> = {};
-                    for (const char of scenario.characters) {
-                      const bestVoice = autoSelectVoice('en', char.gender);
-                      voices[char.id] = { label: bestVoice.label, value: bestVoice.id };
-                    }
-                    setCharacterVoices(voices);
-                    setLanguageMode('english');
-                  } else if (scenario) {
-                    // Single scenario — auto-select single voice
-                    const bestVoice = autoSelectVoice('en', scenario.caller_gender);
-                    setSelectedVoice({ label: bestVoice.label, value: bestVoice.id });
-                    setCharacterVoices({});
-                    setLanguageMode('english');
-                  }
+                  applyScenarioDefaults(scenarios.find(s => s.id === detail.selectedOption.value));
                 }}
                 options={scenarioOptions}
                 placeholder="Select a scenario"
