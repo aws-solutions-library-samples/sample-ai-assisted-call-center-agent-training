@@ -13,7 +13,7 @@ export const MODEL_IDS = {
 /**
  * Strips the regional prefix from a cross-region inference profile ID.
  * e.g. "us.anthropic.claude-sonnet-5-5" → "anthropic.claude-sonnet-5-5"
- *      "amazon.nova-2-sonic-v1:0" → "amazon.nova-2-sonic-v1:0" (unchanged)
+ *      "amazon.nova-2-5-sonic" → "amazon.nova-2-5-sonic" (unchanged)
  */
 export function baseModelId(modelId: string): string {
   return modelId.replace(/^us\./, '');

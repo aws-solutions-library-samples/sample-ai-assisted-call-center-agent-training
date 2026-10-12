@@ -33,22 +33,16 @@ See also the [full stack architecture diagram](architecture-diagram-connect.png)
 - **Endpoints**:
   - `GET /scenarios` - List training scenarios from DynamoDB
   - `GET /agents` - List Connect representatives
-  - `GET /calls` - List recent call sessions from DynamoDB
-  - `GET /calls/{sessionId}` - Get session detail (scorecard + transcript)
-  - `GET /calls/{sessionId}/audio` - Get presigned URL for audio playback
   - `POST /start-call` - Initiate outbound training call via Connect
 
-### 3. Connect Post-Call Lambda
+### 3. Rubric Scoring with Amazon Connect Evaluations
 
-- **Location**: `src/lambda/connect_postcall/`
-- **Trigger**: EventBridge (S3 Object Created for Contact Lens analysis)
-- **Function**: Processes completed training calls:
-  1. Parses Contact Lens analysis (transcript + analytics)
-  2. Downloads Connect call recording (stereo WAV)
-  3. Extracts representative audio channel using ffmpeg
-  4. Converts transcript to session format
-  5. Uploads to recordings S3 bucket
-  6. Invokes Scoring Lambda asynchronously
+Everything after the call happens inside Amazon Connect — there is no post-call Lambda, and results are reviewed in the Amazon Connect admin website (**Analytics and optimization → Contact search / Evaluations**).
+
+- **Evaluation form**: `ConnectEvaluationFormConstruct` generates a form from `rubrics/default.json` at deploy time — one section per rubric section, one Yes/No question per criterion answered by generative AI, question weights proportional to `max_points`, and "No" on a Critical criterion is an automatic fail. Connect answers at most 10 generative-AI questions per automatically evaluated contact, so synth fails if the rubric has more criteria.
+- **Evaluated contact**: The AI customer's outbound call reaches the trainee's CCP as a separate **inbound** contact on the toll-free number, where the trainee is the AGENT. The `CallCenterTrainingInbound` flow tags it `training_evaluation=true`, enables recording + Contact Lens post-call analytics, and routes it to BasicQueue.
+- **Auto-submit rule**: A Contact Lens rule (`CallCenterTrainingAutoEvaluation`, trigger *post-call analysis available*, condition `training_evaluation = true`) submits an automated evaluation with the form on every trainee contact.
+- **Changing the rubric**: Edit `rubrics/default.json` and redeploy. Per-scenario criteria toggles in the Web UI admin do not apply to Connect evaluations.
 
 ### 4. Contact Flows
 
@@ -70,8 +64,7 @@ Contact flow in `amazon-connect/`:
   - Cognito authentication (admin-only, no self-signup)
   - Scenario selection
   - Representative username input
-  - Start training call button
-  - Call history table with scoring results
+  - Start training call button (the only admin function — scores and transcripts are in Amazon Connect)
 - **Hosting**: CloudFront + S3
 
 ### 6. AI Agent Session Setup Lambda
@@ -100,7 +93,7 @@ Training calls use **Amazon Connect AI Agents** for natural conversation simulat
 6. AI Agent uses orchestration prompt referencing `{{$.Custom.*}}` variables for scenario data
 7. AI Agent calls Amazon Bedrock (Claude Haiku) for conversation orchestration
 8. Amazon Connect handles speech-to-text and text-to-speech automatically
-9. Post-call processing (Contact Lens → EventBridge → Post-Call Lambda) remains unchanged
+9. When the trainee's contact is analyzed, Contact Lens auto-submits the rubric evaluation (see section 3)
 
 **Key Components:**
 - **AI Prompt:** Orchestration prompt template with scenario variables (created in Amazon Connect console under AI Agents)
@@ -135,28 +128,14 @@ The following resources are shared between Web UI and Connect modes via the `Cal
 | Resource | Used By Web UI | Used By Connect |
 |----------|---------------|-----------------|
 | VPC | Yes | Yes |
-| S3 Recording Bucket | Yes (sessions/) | Yes (connect-recordings/, connect-sessions/) |
+| S3 Recording Bucket | Yes (sessions/) | No (Connect stores recordings + analysis in its own bucket) |
 | KMS Encryption Key | Yes | Yes |
-| DynamoDB Tables | Yes (scenarios, sessions) | Yes (scenarios, sessions) |
+| DynamoDB Tables | Yes (scenarios, sessions) | Yes (scenarios) |
 | AgentCore Runtime | Yes (via WebSocket from browser) | No (Connect uses Lex + Claude directly) |
 
 ## Recording Storage
 
-```
-S3 Bucket (shared):
-+-- sessions/                      # Web UI recordings
-|   +-- {session_id}/
-|       +-- {session_id}_audio.wav
-|       +-- {session_id}_session.json
-+-- connect-recordings/            # Connect native call recordings
-|   +-- {year}/{month}/{day}/
-|       +-- {contact_id}.wav
-+-- connect-sessions/              # Connect session metadata
-|   +-- {session_id}/
-|       +-- {session_id}_session.json
-+-- evaluations/                   # Evaluation results
-    +-- {session_id}_evaluation.json
-```
+Web UI recordings live in the shared recordings bucket under `users/{user_id}/sessions/{session_id}/`. Connect call recordings and Contact Lens analysis stay in the Connect instance's own recordings bucket and are viewed in the Amazon Connect admin website.
 
 ## Authentication
 
@@ -173,7 +152,7 @@ S3 Bucket (shared):
 
 2. **Connect-managed identity**: Simplest setup - representatives are created directly in Connect rather than federated. For production, SAML/OIDC federation could be added.
 
-3. **Post-call scoring**: Connect natively records calls via Contact Lens. When analysis completes, an EventBridge event triggers the post-call Lambda, which processes the recording and invokes scoring + audio empathy evaluation automatically.
+3. **Post-call scoring in Connect**: Connect records and analyzes the trainee's contact with Contact Lens, and a Contact Lens rule auto-submits an evaluation using a form generated from the rubric. No custom post-call code runs.
 
 4. **AI Agent conversation engine**: Training calls use Amazon Connect AI Agents for natural conversation simulation. The Session Setup Lambda injects scenario data before the conversation starts, making all context available to the AI from the first turn. AI Prompts and AI Agents are configured in the Amazon Connect console for easy iteration.
 

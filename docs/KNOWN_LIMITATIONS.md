@@ -50,7 +50,7 @@ Nova Sonic reports token usage cumulatively per connection, so the counts reset 
 
 ## Nova Sonic Region Availability
 
-Nova Sonic (`amazon.nova-2-sonic-v1:0`) is only available in specific AWS regions (e.g., `us-west-2`, `us-east-1`, `eu-north-1`). All runtime code reads the region from environment variables (`AWS_REGION`, `AWS_DEFAULT_REGION`, or `VITE_AWS_REGION`) and falls back to `us-west-2` as a default. Deploying to another region requires setting the appropriate env vars and verifying Nova Sonic availability in that region.
+Nova Sonic (`amazon.nova-2-5-sonic`) is only available in specific AWS regions (e.g., `us-west-2`, `us-east-1`, `eu-north-1`). All runtime code reads the region from environment variables (`AWS_REGION`, `AWS_DEFAULT_REGION`, or `VITE_AWS_REGION`) and falls back to `us-west-2` as a default. Deploying to another region requires setting the appropriate env vars and verifying Nova Sonic availability in that region.
 
 ---
 
@@ -93,6 +93,6 @@ Compressed formats (Opus, MP3, AAC, etc.) are **not supported** over the bidirec
 
 ---
 
-## Amazon Connect Post-Call Processing Delay
+## Amazon Connect Evaluation Delay
 
-After a training call ends on Amazon Connect, it may take up to **6 minutes** before the session appears in the Connect admin UI. This delay is caused by the EventBridge event delivery pipeline — Connect publishes contact events to EventBridge, which triggers the post-call Lambda for scoring and storage. The delay is inherent to the EventBridge integration and cannot be reduced through configuration.
+After a training call ends on Amazon Connect, the evaluation appears in the Amazon Connect admin website only after Contact Lens post-call analysis completes and the automated evaluation is submitted — typically several minutes. Connect evaluations score only the rubric criteria (at most 10 generative-AI questions per contact); Web UI features such as transcript analytics, audio empathy, and per-scenario criteria toggles are not available for Connect calls.

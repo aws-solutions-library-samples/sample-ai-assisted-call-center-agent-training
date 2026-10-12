@@ -4,6 +4,9 @@
  * Provides trainees with minimal API surface:
  * - listScenarios: DynamoDB Scan (summary fields)
  * - getScenario: DynamoDB GetItem (full scenario)
+ * - createSession: DynamoDB PutItem (Sessions)
+ * - getMySummary: DynamoDB Query (own sessions + TimestampIndex for
+ *   anonymised cohort averages)
  *
  * No S3, KMS, Bedrock, or write permissions.
  * Admin operations remain in the admin Lambda (separate IAM boundary).
@@ -106,6 +109,18 @@ export class TraineeLambdaConstruct extends Construct {
             }),
           ],
         }),
+        DynamoDBSessionsQuery: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: ['dynamodb:Query'],
+              resources: [
+                props.sessionsTableArn,
+                `${props.sessionsTableArn}/index/TimestampIndex`,
+              ],
+            }),
+          ],
+        }),
       },
     });
 
@@ -128,7 +143,7 @@ export class TraineeLambdaConstruct extends Construct {
         LOG_LEVEL: 'INFO',
       },
       logGroup,
-      description: 'Trainee scenario access and session creation',
+      description: 'Trainee scenario access, session creation, and daily summary',
     });
 
     // DynamoDB tables use a customer-managed KMS CMK. Without explicit grants

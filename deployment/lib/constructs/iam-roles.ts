@@ -356,7 +356,6 @@ export class IamRolesConstruct extends Construct {
             'Foundation model ARNs use wildcard region (arn:aws:bedrock:*::) for cross-region inference. ' +
             'Resources scoped to specific model IDs (Nova Sonic, Nova 2 Lite).',
           appliesTo: [
-            'Resource::arn:aws:bedrock:*::foundation-model/amazon.nova-sonic-v1:0',
             ...bedrockModelArns(MODEL_IDS.novaSonic, stack.region, stack.account).map(a => `Resource::${a}`),
             ...bedrockModelArns(MODEL_IDS.novaLite, stack.region, stack.account).map(a => `Resource::${a}`),
           ],

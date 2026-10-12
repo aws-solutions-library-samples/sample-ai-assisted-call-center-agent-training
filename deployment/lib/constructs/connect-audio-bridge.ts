@@ -14,7 +14,6 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as iam from 'aws-cdk-lib/aws-iam';
-import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as kms from 'aws-cdk-lib/aws-kms';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as logs from 'aws-cdk-lib/aws-logs';
@@ -31,10 +30,6 @@ export interface ConnectAudioBridgeProps {
   contactFlowId: string;
   /** Default destination phone number (E.164) for outbound calls */
   destinationPhoneNumber: string;
-  /** S3 recordings bucket (for listing call history) */
-  recordingsBucket: s3.IBucket;
-  /** KMS encryption key */
-  encryptionKey: kms.IKey;
   /** VPC for Lambda deployment */
   vpc: ec2.IVpc;
   /** Connect queue ARN (optional — Lambda discovers at runtime if not provided) */
@@ -43,10 +38,6 @@ export interface ConnectAudioBridgeProps {
   scenariosTableName: string;
   /** DynamoDB Scenarios table ARN */
   scenariosTableArn: string;
-  /** DynamoDB Sessions table name */
-  sessionsTableName: string;
-  /** DynamoDB Sessions table ARN */
-  sessionsTableArn: string;
   /** KMS CMK protecting the DynamoDB tables. Required for read+write access. */
   dynamoEncryptionKey: kms.IKey;
 }
@@ -124,24 +115,12 @@ export class ConnectAudioBridgeConstruct extends Construct {
             }),
           ],
         }),
-        S3Access: new iam.PolicyDocument({
-          statements: [
-            new iam.PolicyStatement({
-              effect: iam.Effect.ALLOW,
-              actions: ['s3:GetObject', 's3:PutObject', 's3:ListBucket'],
-              resources: [
-                props.recordingsBucket.bucketArn,
-                `${props.recordingsBucket.bucketArn}/*`,
-              ],
-            }),
-          ],
-        }),
         KmsAccess: new iam.PolicyDocument({
           statements: [
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
-              actions: ['kms:Decrypt', 'kms:Encrypt', 'kms:GenerateDataKey'],
-              resources: [props.encryptionKey.keyArn, props.dynamoEncryptionKey.keyArn],
+              actions: ['kms:Decrypt'],
+              resources: [props.dynamoEncryptionKey.keyArn],
             }),
           ],
         }),
@@ -170,15 +149,6 @@ export class ConnectAudioBridgeConstruct extends Construct {
               effect: iam.Effect.ALLOW,
               actions: ['dynamodb:Scan', 'dynamodb:GetItem'],
               resources: [props.scenariosTableArn],
-            }),
-          ],
-        }),
-        DynamoDBSessionsAccess: new iam.PolicyDocument({
-          statements: [
-            new iam.PolicyStatement({
-              effect: iam.Effect.ALLOW,
-              actions: ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:PutItem', 'dynamodb:UpdateItem'],
-              resources: [props.sessionsTableArn, `${props.sessionsTableArn}/index/TimestampIndex`],
             }),
           ],
         }),
@@ -230,14 +200,12 @@ export class ConnectAudioBridgeConstruct extends Construct {
       securityGroups: [lambdaSg],
       environment: {
         USER_AGENT_STRING: solutionUserAgent(this),
-        RECORDINGS_BUCKET: props.recordingsBucket.bucketName,
         CONNECT_INSTANCE_ARN: props.connectInstanceArn,
         CONNECT_INSTANCE_ID: cdk.Fn.select(1, cdk.Fn.split('instance/', props.connectInstanceArn)),
         CONTACT_FLOW_ID: props.contactFlowId,
         DESTINATION_PHONE: props.destinationPhoneNumber,
         ...(props.queueArn ? { QUEUE_ARN: props.queueArn } : {}),
         SCENARIOS_TABLE: props.scenariosTableName,
-        SESSIONS_TABLE: props.sessionsTableName,
         LOG_LEVEL: 'INFO',
       },
       logGroup,
@@ -270,13 +238,6 @@ export class ConnectAudioBridgeConstruct extends Construct {
           reason: 'Log group ARN :* suffix is required to cover log streams within the group.',
           appliesTo: [
             { regex: '/Resource::.*LogGroup.*\\.Arn>:\\*$/g' } as any,
-          ],
-        },
-        {
-          id: 'AwsSolutions-IAM5',
-          reason: 'S3 object-level access requires /* suffix on bucket ARN. Resource scoped to recordings bucket.',
-          appliesTo: [
-            { regex: '/Resource::.*\\.Arn>\\/\\*$/g' } as any,
           ],
         },
         {

@@ -7,6 +7,7 @@ import { ScenarioSelection } from './components/ScenarioSelection';
 import { TrainingSession } from './components/TrainingSession';
 import { ScoringResults } from './components/ScoringResults';
 import { TrainingHistory } from './components/TrainingHistory';
+import { DailySummary } from './components/DailySummary';
 import { AdminDashboard } from './components/admin/AdminDashboard';
 import { TraineeSessionList } from './components/admin/TraineeSessionList';
 import { SessionDetail } from './components/admin/SessionDetail';
@@ -31,6 +32,8 @@ function App({ signOut, user }: AppProps) {
   const [selectedMood, setSelectedMood] = useState<string>('neutral');
   const [selectedLanguageMode, setSelectedLanguageMode] = useState<string>('english');
   const [selectedCharacterVoices, setSelectedCharacterVoices] = useState<Record<string, string> | undefined>(undefined);
+  // Scenario to preselect when arriving from "Practice now" on the daily summary
+  const [practiceScenarioId, setPracticeScenarioId] = useState<string | undefined>(undefined);
 
   // Admin state
   const [selectedTrainee, setSelectedTrainee] = useState<TraineeInfo | null>(null);
@@ -55,6 +58,14 @@ function App({ signOut, user }: AppProps) {
   const handleBackToScenarios = () => {
     setSelectedScenario(null);
     setScoringData(null);
+    setPracticeScenarioId(undefined);
+    setCurrentView('scenario');
+  };
+
+  const handlePractice = (scenarioId?: string) => {
+    setSelectedScenario(null);
+    setScoringData(null);
+    setPracticeScenarioId(scenarioId);
     setCurrentView('scenario');
   };
 
@@ -114,7 +125,19 @@ function App({ signOut, user }: AppProps) {
               text: 'Criteria',
               onClick: () => setCurrentView('admin-criteria-config'),
             },
-          ] : []),
+          ] : [
+            {
+              type: 'button' as const,
+              text: 'Practice',
+              iconName: 'call' as const,
+              onClick: () => handleBackToScenarios(),
+            },
+            {
+              type: 'button' as const,
+              text: 'My Summary',
+              onClick: () => setCurrentView('daily-summary'),
+            },
+          ]),
           {
             type: 'menu-dropdown',
             text: user?.signInDetails?.loginId || userName || 'User',
@@ -175,7 +198,9 @@ function App({ signOut, user }: AppProps) {
                 {/* Trainee views */}
                 {effectiveView === 'scenario' && (
                   <ScenarioSelection
+                    key={practiceScenarioId ?? 'default'}
                     onScenarioSelect={handleScenarioSelect}
+                    initialScenarioId={practiceScenarioId}
                   />
                 )}
 
@@ -199,6 +224,10 @@ function App({ signOut, user }: AppProps) {
                     onNewSession={handleBackToScenarios}
                     onViewHistory={handleViewHistory}
                   />
+                )}
+
+                {effectiveView === 'daily-summary' && (
+                  <DailySummary onPractice={handlePractice} />
                 )}
 
                 {effectiveView === 'history' && (

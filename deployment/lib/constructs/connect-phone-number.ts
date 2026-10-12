@@ -31,6 +31,9 @@ export interface ConnectPhoneNumberProps {
    *  "Sample inbound flow (first contact experience)" by name and associates it
    *  so that dialing the number routes to CCP via the default sample queue. */
   useDefaultSampleInboundFlow?: boolean;
+  /** Name of the flow to look up when `useDefaultSampleInboundFlow` is set.
+   *  Defaults to the built-in "Sample queue customer" flow. */
+  inboundFlowName?: string;
 }
 
 export class ConnectPhoneNumberConstruct extends Construct {
@@ -163,7 +166,7 @@ export class ConnectPhoneNumberConstruct extends Construct {
         properties: {
           InstanceId: props.instanceId,
           PhoneNumberId: phoneNumberId,
-          FlowName: 'Sample queue customer',
+          FlowName: props.inboundFlowName ?? 'Sample queue customer',
         },
       });
       associateFlow.node.addDependency(number);

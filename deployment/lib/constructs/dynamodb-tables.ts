@@ -77,7 +77,7 @@ export class DynamoDBTablesConstruct extends Construct {
     });
 
     // ContactIdIndex — enables O(1) lookup of sessionId from Connect contactId
-    // Used by the Connect post-call Lambda when EventBridge fires with contactId
+    // (Previously used by the Connect post-call Lambda; kept so existing deployments keep the index)
     this.sessionsTable.addGlobalSecondaryIndex({
       indexName: 'ContactIdIndex',
       partitionKey: { name: 'contactId', type: dynamodb.AttributeType.STRING },

@@ -195,6 +195,7 @@ def format_scorecard_response(scorecard: dict) -> dict:
                 criticality = criticality.value
 
             criteria_map[criterion["criterion_id"]] = {
+                "section_id": section["section_id"],
                 "description": criterion["description"],
                 "criticality": criticality,
                 "passed": criterion["passed"],
