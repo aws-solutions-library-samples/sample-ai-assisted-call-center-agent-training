@@ -22,14 +22,14 @@
 
 ## Overview
 
-This Guidance helps call center operations teams reduce representative onboarding time and improve training quality by providing AI-powered voice simulations of realistic customer interactions. An AI customer (powered by **Amazon Nova 2 Sonic**) engages trainees in real-time voice conversations based on configurable scenarios drawn from real call logs. Sessions are recorded in stereo WAV format with full transcripts and automatically scored against a detailed rubric using **Amazon Bedrock** (Claude).
+This Guidance helps call center operations teams reduce representative onboarding time and improve training quality by providing AI-powered voice simulations of realistic customer interactions. An AI customer (powered by **Amazon Nova 2.5 Sonic**) engages trainees in real-time voice conversations based on configurable scenarios drawn from real call logs. Sessions are recorded in stereo WAV format with full transcripts and automatically scored against a detailed rubric using **Amazon Bedrock** (Claude).
 
 Two deployment modes are supported:
 
 - **Web UI** — Browser-based training via **Amazon CloudFront**, with **Amazon Cognito** authentication and role-based access (trainee/admin)
 - **Amazon Connect** — Phone-based training where trainees call in and interact with the AI customer through **Amazon Connect** contact flows and AI Agents
 
-Multilingual support covers English, French, Italian, German, Spanish, Portuguese, and Hindi via Nova 2 Sonic voices.
+Multilingual support covers English, French, Italian, German, Spanish, Portuguese, and Hindi via Nova 2.5 Sonic voices.
 
 ### Demo
 
@@ -53,7 +53,7 @@ The following table provides a sample cost breakdown for deploying this Guidance
 
 | AWS Service | Dimensions | Cost [USD] |
 | --- | --- | --- |
-| Amazon Bedrock (Nova 2 Sonic) | 500 sessions × 5 min avg bidirectional streaming | ~$150.00 |
+| Amazon Bedrock (Nova 2.5 Sonic) | 500 sessions × 5 min avg bidirectional streaming | ~$150.00 |
 | Amazon Bedrock (Claude) | 500 scoring invocations, ~4K tokens each | ~$15.00 |
 | Amazon Bedrock AgentCore Runtime | 500 sessions, on-demand compute | ~$50.00 |
 | AWS Lambda | 2,500 invocations (scoring, admin, trainee, empathy), 512MB–2GB, 10–60s | ~$5.00 |
@@ -99,7 +99,7 @@ These deployment instructions are optimized to best work on **Amazon Linux 2023*
 ### AWS Account Requirements
 
 - **Amazon Bedrock model access** — Enable the following models in your deployment region:
-  - Amazon Nova 2 Sonic (`amazon.nova-2-sonic-v1:0`)
+  - Amazon Nova 2.5 Sonic (`amazon.nova-2-5-sonic`)
   - Anthropic Claude Sonnet 5.5 (`us.anthropic.claude-sonnet-5-5`)
   - Amazon Nova 2 Lite (`us.amazon.nova-2-lite-v1:0`)
 - **Service quotas** — Default quotas are sufficient for most deployments. If running more than 10 concurrent training sessions, request an increase for Bedrock AgentCore Runtime concurrent invocations.
@@ -119,7 +119,7 @@ Replace `ACCOUNT_ID` with your AWS account ID and `REGION` with your target regi
 
 ### Supported Regions
 
-This Guidance requires Amazon Bedrock AgentCore Runtime and Amazon Nova 2 Sonic, which are available in:
+This Guidance requires Amazon Bedrock AgentCore Runtime and Amazon Nova 2.5 Sonic, which are available in:
 
 - US East (N. Virginia) — `us-east-1`
 - US West (Oregon) — `us-west-2`
@@ -361,7 +361,7 @@ After ending a session, the scoring panel displays:
 
 - **Customize scenarios** — Create new training scenarios in `scenarios/` based on your organization's call patterns. Each scenario includes customer context, key challenges, and success criteria.
 - **Adjust scoring rubrics** — Modify scoring criteria via the Admin dashboard to align with your quality assurance standards.
-- **Add languages** — Configure additional Nova 2 Sonic voices for new language support.
+- **Add languages** — Configure additional Nova 2.5 Sonic voices for new language support.
 - **Integrate with existing LMS** — Use the API Gateway endpoints to pull session scores into your Learning Management System.
 - **Scale for production** — Increase NAT Gateway count and VPC endpoint capacity for higher concurrent session loads. Consider adding a custom domain with ACM certificate for CloudFront.
 
@@ -412,7 +412,7 @@ If you are removing the project entirely, also delete the CDK toolkit stack (`CD
 **Limitations:**
 
 - Maximum concurrent sessions depend on Bedrock AgentCore Runtime quotas (default: 10 concurrent invocations).
-- Nova 2 Sonic voice streaming requires a stable internet connection with low latency (<200ms RTT recommended).
+- Nova 2.5 Sonic voice streaming requires a stable internet connection with low latency (<200ms RTT recommended).
 - Screen recording analysis requires Chrome or Edge browsers with screen capture API support.
 
 For any feedback, questions, or suggestions, please use the issues tab under this repo.

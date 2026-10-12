@@ -50,7 +50,7 @@ Nova Sonic reports token usage cumulatively per connection, so the counts reset 
 
 ## Nova Sonic Region Availability
 
-Nova Sonic (`amazon.nova-2-sonic-v1:0`) is only available in specific AWS regions (e.g., `us-west-2`, `us-east-1`, `eu-north-1`). All runtime code reads the region from environment variables (`AWS_REGION`, `AWS_DEFAULT_REGION`, or `VITE_AWS_REGION`) and falls back to `us-west-2` as a default. Deploying to another region requires setting the appropriate env vars and verifying Nova Sonic availability in that region.
+Nova Sonic (`amazon.nova-2-5-sonic`) is only available in specific AWS regions (e.g., `us-west-2`, `us-east-1`, `eu-north-1`). All runtime code reads the region from environment variables (`AWS_REGION`, `AWS_DEFAULT_REGION`, or `VITE_AWS_REGION`) and falls back to `us-west-2` as a default. Deploying to another region requires setting the appropriate env vars and verifying Nova Sonic availability in that region.
 
 ---
 

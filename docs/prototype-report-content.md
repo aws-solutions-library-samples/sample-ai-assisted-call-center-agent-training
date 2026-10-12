@@ -339,7 +339,7 @@ When the input loop detects `pending_handoff` is set:
 
 ## Technical Approach
 
-The prototype leverages the Strands Agents SDK (v1.24.0) with Amazon Bedrock AgentCore Runtime for building multi-turn, bidirectional voice agents. The core interaction engine uses a BidiAgent configured with Amazon Nova 2 Sonic for real-time speech-to-speech communication, supporting 16 distinct voices across 7 languages.
+The prototype leverages the Strands Agents SDK (v1.24.0) with Amazon Bedrock AgentCore Runtime for building multi-turn, bidirectional voice agents. The core interaction engine uses a BidiAgent configured with Amazon Nova 2.5 Sonic for real-time speech-to-speech communication, supporting 16 distinct voices across 7 languages.
 
 ### Voice Streaming
 
@@ -538,7 +538,7 @@ The following tools and configurations are required:
 - AWS CDK CLI (`npm install -g aws-cdk`)
 - Docker (for building the AgentCore container image)
 
-The deploying AWS account must have access to Amazon Bedrock models (Nova 2 Sonic v1 for voice, Claude Sonnet 5.5 for evaluation) in the target region (us-west-2). If using the Amazon Connect integration, a Connect instance must be pre-created with the appropriate contact flows configured.
+The deploying AWS account must have access to Amazon Bedrock models (Nova 2.5 Sonic for voice, Claude Sonnet 5.5 for evaluation) in the target region (us-west-2). If using the Amazon Connect integration, a Connect instance must be pre-created with the appropriate contact flows configured.
 
 **Local Testing:** The `scripts/test_local.py` and `scripts/test_local_duo.py` scripts allow testing scenarios locally without deploying to AgentCore, using the same system prompts and tools as production. Console voice testing applies WebRTC echo cancellation and noise suppression (via Strands' `bidi-aec` extra), so speakers work without headphones; pass `--no-echo-cancellation` to turn it off. Install the script dependencies with `pip install -r scripts/requirements.txt`.
 
@@ -548,7 +548,7 @@ Deployment parameters are defined in `deployment/config.json`:
 
 - **VPC configuration:** CIDR range (10.0.0.0/16), number of availability zones (2), NAT gateway count (1)
 - **VPC endpoints:** Toggles for interface endpoints (Bedrock AgentCore, Bedrock Runtime, ECR, CloudWatch Logs, Secrets Manager) and gateway endpoints (S3, DynamoDB)
-- **Agent configuration:** Voice model ID (`amazon.nova-2-sonic-v1:0`), evaluation model ID (`us.anthropic.claude-sonnet-5-5`), Connect conversation model ID (`us.anthropic.claude-haiku-4-5-20251001-v1:0`), available voices
+- **Agent configuration:** Voice model ID (`amazon.nova-2-5-sonic`), evaluation model ID (`us.anthropic.claude-sonnet-5-5`), Connect conversation model ID (`us.anthropic.claude-haiku-4-5-20251001-v1:0`), available voices
 - **Connect configuration (optional):** Connect instance ARN, contact flow ID, destination phone number
 
 ### CDK Deployment Process
