@@ -38,9 +38,6 @@ Both modes share a common backend comprising Amazon DynamoDB for scenario and se
 ![Figure 2 - Amazon Connect Architecture](architecture-diagram-connect.png)
 *Figure 2 - Amazon Connect Architecture*
 
-![Figure 3 - Connect Contact Flow](connect-flow-architecture.png)
-*Figure 3 - Connect Contact Flow*
-
 ### AWS Services Used
 
 | Service | Purpose |

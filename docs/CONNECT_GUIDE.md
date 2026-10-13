@@ -4,7 +4,7 @@ This stack now provisions nearly everything via CDK. What used to be a 15-step c
 
 ## Architecture Overview
 
-![Connect Flow Architecture](connect-flow-architecture.png)
+![Amazon Connect Architecture](architecture-diagram-connect.png)
 ---
 
 ## Prerequisites
